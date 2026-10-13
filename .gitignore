@@ -1,0 +1,21 @@
+# Local credentials and private runtime configuration
+.env
+.env.*
+!.env.example
+
+# Local workspace and private uploaded documents
+.grok/
+attachments/
+screenshots/
+.DS_Store
+
+# Dependencies and generated build output
+node_modules/
+dist/
+.output/
+.vercel/
+.tanstack/
+
+# Local logs and OS metadata
+*.log
+.DS_Store
