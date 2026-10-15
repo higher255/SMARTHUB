@@ -35,7 +35,10 @@ function MyWork({ profile }: { profile: Profile }) {
   const { request: requestId } = Route.useSearch();
   const brand = useOrgBrand();
   const canRequest = can(profile, "finance.request");
-  const canRequestMoney = canRequest && profile.role !== "Finance";
+  // Finance staff process requests for the company; don't let department-only
+  // Finance accounts submit requests if their role grants the generic staff permission.
+  const isFinanceStaff = profile.role === "Finance" || profile.department.trim().toLowerCase() === "finance";
+  const canRequestMoney = canRequest && !isFinanceStaff;
   const canHours = can(profile, "hours.record");
   const canNcr = can(profile, "ncr.raise");
 
