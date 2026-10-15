@@ -14,6 +14,7 @@ import { createNcr, recordWorkHours, reportAnonymousHazard } from "@/lib/ehs/hse
 import { listAnnouncements, listHealth, reportIncident, submitHealth, type Announcement, type HealthRow, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
 
 export const Route = createFileRoute("/dashboard")({ component: DashboardPage });
 
@@ -122,6 +123,8 @@ function MyWork({ profile }: { profile: Profile }) {
         </div>
       </div>
 
+      <section className="mt-6"><SafetyHubWorkspace profile={profile} compact /></section>
+
       {dialog === "request" ? (
         <RequestDialog projects={projects} limit={brand?.managerApprovalLimit ?? 0} currency={currency} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); void load(); }} />
       ) : null}
@@ -205,19 +208,18 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!projectId) return setErr("Please choose a project");
           if (!(value > 0)) return setErr("Please enter an amount greater than zero");
           setBusy(true);
           try {
-            const r = await createFinanceRequest({ data: { projectId: Number(projectId), title, category, amount: value, priority, description: description || undefined } });
+            const r = await createFinanceRequest({ data: { projectId: projectId === "" ? null : Number(projectId), title, category, amount: value, priority, description: description || undefined } });
             onDone(r.requiresManager ? `${r.requestNumber} sent to a manager first, then finance` : `${r.requestNumber} sent to finance`);
           } catch (e2) { setErr(errorMessage(e2)); } finally { setBusy(false); }
         }}
       >
         <Notice msg={err} tone="danger" />
-        <Field label="Project">
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls} required>
-            <option value="">Choose project</option>
+        <Field label="Project (optional)">
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls}>
+            <option value="">Company / office request</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>

@@ -20,7 +20,7 @@ export type FinanceRequestStatus = "Draft" | "Submitted" | "Under Review" | "App
 
 export type FinanceRequest = {
   id: number;
-  projectId: number;
+  projectId: number | null;
   userId: string;
   requestNumber: string;
   title: string;
@@ -98,7 +98,7 @@ function friendly(error: unknown): Error {
 // ============================================
 
 type RequestRow = {
-  id: number; project_id: number; user_id: string; request_number: string; title: string; description: string | null;
+  id: number; project_id: number | null; user_id: string; request_number: string; title: string; description: string | null;
   category: string; amount: string | number; currency: string; status: string; priority: string; requested_by: string;
   requested_at: string; requires_manager: boolean | null; over_budget: boolean | null; endorsed_by: string | null; endorsed_at: string | null;
   approved_by: string | null; approved_at: string | null; rejected_by: string | null; rejected_reason: string | null;
@@ -121,7 +121,7 @@ const money = (n: number, currency: string) => `${currency} ${Math.round(n).toLo
 export const createFinanceRequest = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({
-      projectId: z.number().int(),
+      projectId: z.number().int().nullable().optional(),
       title: z.string().min(1).max(200),
       description: z.string().max(2000).optional(),
       category: z.enum(["Material", "Equipment", "Labor", "Transport", "Other"]),
@@ -136,15 +136,16 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "finance.request", "You cannot submit finance requests");
-    const project = await sql<{ id: number; name: string; user_id: string }>`
+    const project = data.projectId == null ? [] : await sql<{ id: number; name: string; user_id: string }>`
       select id, name, user_id from projects where id = ${data.projectId} and organization_id = ${profile.organizationId}`;
-    if (!project[0]) throw new Error("Choose a project from your company");
+    if (data.projectId != null && !project[0]) throw new Error("Choose a project from your company");
+    const projectName = project[0]?.name ?? "Company / office";
     const org = await sql<{ currency: string; manager_approval_limit: string | number; enforce_budget: boolean }>`
       select currency, manager_approval_limit, enforce_budget from organizations where id = ${profile.organizationId}`;
     const currency = data.currency ?? org[0]?.currency ?? "TZS";
 
     // Budget check: category allocation if one is set, otherwise the project's total budget.
-    const bud = await sql<{ alloc: string | number | null; committed: string | number; total: string | number; total_committed: string | number }>`
+    const bud = data.projectId == null ? [{ alloc: null, committed: 0, total: 0, total_committed: 0 }] : await sql<{ alloc: string | number | null; committed: string | number; total: string | number; total_committed: string | number }>`
       select (select amount from project_budgets where project_id = ${data.projectId} and category = ${data.category}) as alloc,
              (select coalesce(sum(amount),0) from finance_requests where project_id = ${data.projectId} and category = ${data.category}
                 and status in ('Submitted','Under Review','Approved','Paid')) as committed,
@@ -165,14 +166,14 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
     const rows = await sql<{ id: number; request_number: string }>`
       insert into finance_requests (project_id, user_id, organization_id, request_number, title, description, category, amount, currency,
                                     priority, status, requested_by, notes, attachments, requires_manager, over_budget)
-      values (${data.projectId}, ${context.userId}, ${profile.organizationId}, acct_next_no(${profile.organizationId}, 'FR', 'FR'),
+      values (${data.projectId ?? null}, ${context.userId}, ${profile.organizationId}, acct_next_no(${profile.organizationId}, 'FR', 'FR'),
               ${data.title}, ${data.description ?? null}, ${data.category}, ${data.amount}, ${currency}, ${data.priority}, 'Submitted',
               ${name}, ${data.notes ?? null}, ${data.attachments ?? null}, ${requiresManager}, ${overBudget})
       returning id, request_number`;
     const created = rows[0]!;
 
     const approvers = await usersWithPermission(sql, profile.organizationId, requiresManager ? "finance.endorse" : "finance.approve");
-    const summary = `${name} requested ${money(data.amount, currency)} for ${project[0].name}: ${data.title}`;
+    const summary = `${name} requested ${money(data.amount, currency)} for ${projectName}: ${data.title}`;
     await notify(sql, {
       organizationId: profile.organizationId,
       userIds: approvers.filter((id) => id !== context.userId),
@@ -187,7 +188,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
         : "Your request was sent to finance for approval.",
       type: "finance_request", link: "/dashboard", entityType: "finance_request", entityId: created.id,
     });
-    if (project[0].user_id !== context.userId && !approvers.includes(project[0].user_id)) {
+    if (project[0] && project[0].user_id !== context.userId && !approvers.includes(project[0].user_id)) {
       await notify(sql, {
         organizationId: profile.organizationId, userIds: [project[0].user_id],
         title: `Money requested on ${project[0].name}`, message: summary, type: "finance_request", link: "/projectmanager",

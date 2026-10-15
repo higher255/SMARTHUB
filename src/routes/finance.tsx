@@ -102,7 +102,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
                     {mine.slice(0, 8).map((r) => (
                       <li key={r.id}>
                         <button type="button" onClick={() => setSelected(r)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-bg-subtle/60">
-                          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{r.title}</span><span className="block text-xs text-fg-muted">{r.requestNumber} · {r.requestedBy} · {projectName.get(r.projectId) ?? `Project ${r.projectId}`}</span></span>
+                          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{r.title}</span><span className="block text-xs text-fg-muted">{r.requestNumber} · {r.requestedBy} · {r.projectId == null ? "Company / office" : projectName.get(r.projectId) ?? `Project ${r.projectId}`}</span></span>
                           <span className="text-right"><span className="block text-sm font-semibold tabular-nums">{formatMoney(r.amount, r.currency)}</span><span className="text-xs text-accent">{actionFor(profile, r)}</span></span>
                         </button>
                       </li>
@@ -161,7 +161,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
         <RequestModal
           profile={profile}
           request={selected}
-          project={projectName.get(selected.projectId) ?? `Project ${selected.projectId}`}
+          project={selected.projectId == null ? "Company / office" : projectName.get(selected.projectId) ?? `Project ${selected.projectId}`}
           onClose={() => setSelected(null)}
           onChanged={(m) => { setMsg(m); void load(); }}
         />
@@ -185,7 +185,7 @@ function RequestsTab({ profile, requests, projectName, onOpen, currency }: { pro
   const rows = useMemo(() => requests.filter((r) => (!status || r.status === status) && (!q || `${r.title} ${r.requestNumber} ${r.requestedBy}`.toLowerCase().includes(q.toLowerCase()))), [requests, q, status]);
 
   const exportCsv = () => {
-    const lines = [["Number", "Date", "Requested by", "Project", "Title", "Category", "Amount", "Status"], ...rows.map((r) => [r.requestNumber, r.createdAt.slice(0, 10), r.requestedBy, projectName.get(r.projectId) ?? "", r.title, r.category, String(r.amount), r.status])];
+    const lines = [["Number", "Date", "Requested by", "Project", "Title", "Category", "Amount", "Status"], ...rows.map((r) => [r.requestNumber, r.createdAt.slice(0, 10), r.requestedBy, r.projectId == null ? "Company / office" : projectName.get(r.projectId) ?? `Project ${r.projectId}`, r.title, r.category, String(r.amount), r.status])];
     const blob = new Blob([lines.map((l) => l.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -212,7 +212,7 @@ function RequestsTab({ profile, requests, projectName, onOpen, currency }: { pro
                   <tr key={r.id} onClick={() => onOpen(r)} className="cursor-pointer hover:bg-bg-subtle/60">
                     <td className="px-3 py-3"><p className="text-sm font-medium">{r.title}</p><p className="text-xs text-fg-muted">{r.requestNumber} · {formatDate(r.createdAt)}</p></td>
                     <td className="px-3 py-3 text-sm">{r.requestedBy}</td>
-                    <td className="px-3 py-3 text-sm text-fg-muted">{projectName.get(r.projectId) ?? `Project ${r.projectId}`}</td>
+                    <td className="px-3 py-3 text-sm text-fg-muted">{r.projectId == null ? "Company / office" : projectName.get(r.projectId) ?? `Project ${r.projectId}`}</td>
                     <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums">{formatMoney(r.amount, r.currency || currency)}</td>
                     <td className="px-3 py-3"><StatusBadge status={r.status} />{r.requiresManager && r.status === "Submitted" ? <span className="ml-1.5 text-[11px] text-warn">manager first</span> : null}{r.overBudget ? <span className="ml-1.5 text-[11px] font-medium text-danger">over budget</span> : null}</td>
                     <td className="px-3 py-3 text-right text-xs font-medium text-accent">{action}</td>
