@@ -4,6 +4,7 @@ import { RoleGate } from "@/components/role-gate";
 import { Notice } from "@/components/ui-kit";
 import { useLive } from "@/lib/ui/use-live";
 import { HseWorkspace } from "@/components/hse/hse-workspace";
+import { HealthStatusBoard } from "@/components/daily/daily";
 import { AfterHoursVehiclePanel } from "@/components/requests/after-hours-vehicle";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
@@ -672,6 +673,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         {/* ======================================== */}
         {activeTab === "overview" && (
           <div className="grid gap-6 lg:grid-cols-2">
+            <div className="lg:col-span-2"><HealthStatusBoard mode="today" /></div>
             <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-fg">Incident Register</h3>

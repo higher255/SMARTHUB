@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
 import { can, canAny } from "./access";
 import { audit, getUserFullName, notify, requirePermission, requireProfile, usersWithPermission } from "./core";
@@ -121,7 +122,7 @@ export const listLeave = createServerFn({ method: "GET" })
 
 export const decideLeave = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), decision: z.enum(["Approved", "Rejected"]), note: z.string().max(300).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "leave.approve", "You cannot decide leave requests");
@@ -174,7 +175,7 @@ export const createSiteReport = createServerFn({ method: "POST" })
       hoursPerWorker: z.number().min(0).max(24).default(0),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "hours.record", "You cannot file site reports");

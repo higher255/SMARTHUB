@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
 import { can } from "./access";
 import {
@@ -132,7 +133,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       attachments: z.array(z.string().max(500)).max(10).optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "finance.request", "You cannot submit finance requests");
@@ -253,7 +254,7 @@ async function loadRequestForUpdate(orgId: string, id: number) {
 
 export const endorseFinanceRequest = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), notes: z.string().max(500).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requirePermission(context.userId, "finance.endorse", "Only managers can endorse requests");
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
@@ -280,7 +281,7 @@ export const endorseFinanceRequest = createServerFn({ method: "POST" })
 
 export const approveFinanceRequest = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), notes: z.string().max(500).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requirePermission(context.userId, "finance.approve", "Only the finance team can approve requests");
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
@@ -311,7 +312,7 @@ export const approveFinanceRequest = createServerFn({ method: "POST" })
 
 export const rejectFinanceRequest = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), reason: z.string().min(1).max(500) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     if (!can(profile, "finance.approve") && !can(profile, "finance.endorse")) throw new Error("You cannot reject finance requests");
@@ -333,7 +334,7 @@ export const rejectFinanceRequest = createServerFn({ method: "POST" })
 
 export const cancelFinanceRequest = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const profile = await requireProfile(context.userId);
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, id);
@@ -353,7 +354,7 @@ export const markFinanceRequestPaid = createServerFn({ method: "POST" })
       notes: z.string().max(500).optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requirePermission(context.userId, "finance.pay", "Only the finance team can record payments");
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
@@ -456,7 +457,7 @@ export const createParty = createServerFn({ method: "POST" })
       email: z.string().email().optional().or(z.literal("")), phone: z.string().max(40).optional(), address: z.string().max(300).optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, data.kind === "supplier" ? "accounts.payables" : "accounts.invoices");
@@ -530,7 +531,7 @@ export const createInvoice = createServerFn({ method: "POST" })
       lines: z.array(z.object({ description: z.string().min(1).max(300), quantity: z.number().positive(), unitPrice: z.number().min(0) })).min(1).max(60),
     }).refine((v) => !v.dueDate || !v.issueDate || v.dueDate >= v.issueDate, { path: ["dueDate"], message: "Due date must be on or after issue date" }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices", "You cannot create invoices");
@@ -567,7 +568,7 @@ export const createInvoice = createServerFn({ method: "POST" })
 
 export const issueInvoice = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices");
@@ -584,7 +585,7 @@ export const receiveInvoicePayment = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ id: z.number().int(), amount: z.number().positive(), payDate: dateStr.optional(), method: z.enum(PAY_METHODS).default("Bank"), reference: z.string().max(120).optional() }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices");
@@ -599,7 +600,7 @@ export const receiveInvoicePayment = createServerFn({ method: "POST" })
 
 export const voidInvoice = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), reason: z.string().min(1).max(300) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices");
@@ -614,7 +615,7 @@ export const voidInvoice = createServerFn({ method: "POST" })
 
 export const deleteDraftInvoice = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices");
@@ -656,7 +657,7 @@ export const createBill = createServerFn({ method: "POST" })
     vatRate:z.number().min(0).max(30).optional(),notes:z.string().max(1000).optional(),
     lines:z.array(z.object({description:z.string().trim().min(1).max(300),quantity:z.number().positive().max(1_000_000),unitPrice:z.number().min(0).max(1_000_000_000),accountCode:z.string().regex(/^[0-9]{3,6}$/),projectId:z.number().int().optional()})).min(1).max(60),
   }).refine(v=>!v.dueDate||!v.issueDate||v.dueDate>=v.issueDate,{path:["dueDate"],message:"Due date must be on or after bill date"}).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql=await getSql(); const profile=await requirePermission(context.userId,"accounts.payables","You cannot create supplier bills");
     const org=await sql<{currency:string;vat_rate:string|number}>`select currency,vat_rate from organizations where id=${profile.organizationId}`;
@@ -744,7 +745,7 @@ export const createPurchaseOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ supplierName: z.string().min(1).max(160), description: z.string().min(1).max(300), amount: z.number().positive(), projectId: z.number().int().optional() }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.invoices", "You cannot create purchase orders");
@@ -773,7 +774,7 @@ export const createAccount = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ code: z.string().regex(/^[0-9]{3,6}$/, "Use a 3 to 6 digit code"), name: z.string().min(1).max(120), type: z.enum(["Asset", "Liability", "Equity", "Income", "Expense"]) }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.post");
@@ -793,7 +794,7 @@ export const postJournal = createServerFn({ method: "POST" })
       lines: z.array(z.object({ account: z.string().min(1), debit: z.number().min(0).default(0), credit: z.number().min(0).default(0), description: z.string().max(200).optional() })).min(2).max(60),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.post", "You cannot post journal vouchers");
@@ -823,7 +824,7 @@ export const listJournalEntries = createServerFn({ method: "GET" })
 
 export const reverseJournalEntry = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), reason: z.string().min(1).max(300) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "accounts.post");
@@ -966,7 +967,7 @@ export const setProjectBudget = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ projectId: z.number().int(), lines: z.array(z.object({ category: z.enum(CATEGORIES), amount: z.number().min(0) })).min(1).max(5) }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "budgets.manage", "You cannot set project budgets");

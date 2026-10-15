@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql, sqlFragment } from "@/lib/db.server";
 import { isEhsRole, ROLE_LABELS, type EhsRole } from "./roles";
 import { can, ALL_PERMISSIONS, ASSIGNABLE_ROLES, type Permission } from "./access";
@@ -117,6 +118,7 @@ export type HealthRow = {
   temperature: number | null;
   notes: string | null;
   userId: string;
+  userName: string;
   organizationId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -371,7 +373,7 @@ export const listAnnouncements = createServerFn({ method: "GET" })
 
 export const createAnnouncement = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ title: z.string().min(1).max(120), message: z.string().min(1).max(500), audienceRole: z.string().optional(), startsAt: z.string().datetime().optional(), endsAt: z.string().datetime().optional(), durationDays: z.number().int().min(1).max(20).default(20) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -386,7 +388,7 @@ export const createAnnouncement = createServerFn({ method: "POST" })
 
 export const deleteAnnouncement = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -398,7 +400,7 @@ export const deleteAnnouncement = createServerFn({ method: "POST" })
 
 export const createJobOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ title: z.string().min(1).max(160), description: z.string().max(1000).optional(), location: z.string().max(160).optional(), projectId: z.number().optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -409,7 +411,7 @@ export const createJobOrder = createServerFn({ method: "POST" })
 
 export const createProject = createServerFn({ method: "POST" })
   .validator((input: unknown) => projectInput.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     await requirePermission(context.userId, "projects.manage");
     const sql = await getSql();
@@ -432,7 +434,7 @@ export const listProjectMembers = createServerFn({ method: "GET" })
 
 export const assignProjectMember = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), userId: z.string(), role: z.string().max(60).default("Contributor") }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
@@ -446,7 +448,7 @@ export const assignProjectMember = createServerFn({ method: "POST" })
 
 export const respondToProjectAssignment = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), status: z.enum(["Accepted", "Rejected"]), reason: z.string().max(500).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     if (data.status === "Rejected" && !data.reason?.trim()) throw new Error("A rejection reason is required");
     const sql = await getSql();
@@ -469,7 +471,7 @@ export const listProjectMilestones = createServerFn({ method: "GET" })
 
 export const createProjectMilestone = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), title: z.string().min(1).max(160), description: z.string().max(500).optional(), dueDate: z.string().optional(), ownerId: z.string().optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
@@ -481,7 +483,7 @@ export const createProjectMilestone = createServerFn({ method: "POST" })
 
 export const updateProjectMilestone = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number(), status: z.enum(["Pending", "In Progress", "Completed", "Blocked"]) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const milestone = await sql<{ project_id: number }>`select project_id from project_milestones where id = ${data.id}`;
@@ -494,7 +496,7 @@ export const updateProjectMilestone = createServerFn({ method: "POST" })
 
 export const requestProjectApproval = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), approverId: z.string() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
@@ -513,7 +515,7 @@ export const listMyProjectAssignments = createServerFn({ method: "GET" })
 
 export const decideProjectApproval = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), status: z.enum(["Approved", "Rejected"]), reason: z.string().max(500).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     if (data.status === "Rejected" && !data.reason?.trim()) throw new Error("A rejection reason is required");
     const sql = await getSql();
@@ -526,7 +528,7 @@ export const decideProjectApproval = createServerFn({ method: "POST" })
 
 export const addProjectAttachment = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ projectId: z.number(), fileName: z.string().min(1).max(200), fileUrl: z.string().url(), attachmentType: z.string().max(40).default("document") }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await requireProjectAccess(sql, data.projectId, context.userId);
@@ -579,7 +581,7 @@ export const updateProject = createServerFn({ method: "POST" })
       status: z.enum(["Planning", "Active", "Completed", "On Hold"]).optional(),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     await requirePermission(context.userId, "projects.manage");
     const sql = await getSql();
@@ -605,7 +607,7 @@ export const updateProject = createServerFn({ method: "POST" })
 
 export const deleteProject = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     await requirePermission(context.userId, "projects.manage");
     const sql = await getSql();
@@ -661,7 +663,7 @@ export const listTasks = createServerFn({ method: "GET" })
 
 export const createTask = createServerFn({ method: "POST" })
   .validator((input: unknown) => taskInput.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -678,7 +680,7 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
       status: z.enum(["Pending", "In Progress", "Completed", "Blocked"]),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { id, status } = data;
@@ -692,7 +694,7 @@ export const updateTaskStatus = createServerFn({ method: "POST" })
 
 export const deleteTask = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -819,7 +821,7 @@ export const updateIncident = createServerFn({ method: "POST" })
       projectId: z.number().nullable().optional(),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { id, ...updates } = data;
@@ -849,7 +851,7 @@ export const updateIncidentStatus = createServerFn({ method: "POST" })
       status: z.enum(["Reported", "Under Investigation", "Resolved", "Closed"]),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { id, status } = data;
@@ -863,7 +865,7 @@ export const updateIncidentStatus = createServerFn({ method: "POST" })
 
 export const deleteIncident = createServerFn({ method: "POST" })
   .validator((id: number) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -886,33 +888,45 @@ export const listHealth = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const profile = await loadProfile(context.userId);
-    const { clause } = getOrgWhereClause(profile, context.userId);
-    
+    const profile = await requireProfile(context.userId);
+    const isHr = profile.role === "HR";
+    const isEhs = can(profile, "ehs.manage");
     const rows = await sql<{
-      id: number;
-      fitness: string;
-      temperature: string | number | null;
-      notes: string | null;
-      user_id: string;
-      organization_id: string | null;
-      created_at: string;
-      updated_at: string;
-    }>`select id, fitness, temperature, notes, user_id, organization_id, created_at, updated_at
-      from health_declarations 
-      where ${clause}
-      order by created_at desc`;
-      
+      id: number; fitness: string; temperature: string | number | null; notes: string | null;
+      user_id: string; user_name: string; organization_id: string | null; created_at: string; updated_at: string;
+    }>`select h.id, h.fitness, h.temperature, h.notes, h.user_id, p.full_name as user_name, h.organization_id, h.created_at, h.updated_at
+      from health_declarations h join profiles p on p.user_id = h.user_id
+      where h.organization_id = ${profile.organizationId}
+        and (${isHr} or (${isEhs} and h.created_at::date = current_date) or h.user_id = ${context.userId})
+      order by h.created_at desc limit 500`;
     return rows.map((r): HealthRow => ({
-      id: r.id,
-      fitness: r.fitness,
-      temperature: r.temperature == null ? null : Number(r.temperature),
-      notes: r.notes,
-      userId: r.user_id,
-      organizationId: r.organization_id,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at || r.created_at,
+      id: r.id, fitness: r.fitness,
+      temperature: isHr || r.user_id === context.userId ? (r.temperature == null ? null : Number(r.temperature)) : null,
+      notes: isHr || r.user_id === context.userId ? r.notes : null,
+      userId: r.user_id, userName: r.user_name, organizationId: r.organization_id,
+      createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
     }));
+  });
+
+export type TodayHealthStatus = { userId: string; userName: string; fitness: string | null; declaredAt: string | null };
+
+export const listTodayHealthStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const profile = await requireProfile(context.userId);
+    if (!can(profile, "ehs.manage") && !can(profile, "hr.manage")) throw new Error("Only EHS or company HR can view employee health status");
+    const rows = await sql<{ user_id: string; full_name: string; fitness: string | null; declared_at: string | null }>`
+      select p.user_id, p.full_name, h.fitness, h.created_at::text as declared_at
+      from profiles p
+      left join lateral (
+        select fitness, created_at from health_declarations
+        where user_id = p.user_id and organization_id = p.organization_id and created_at::date = current_date
+        order by created_at desc limit 1
+      ) h on true
+      where p.organization_id = ${profile.organizationId} and p.status = 'active'
+      order by p.full_name`;
+    return rows.map((r): TodayHealthStatus => ({ userId: r.user_id, userName: r.full_name, fitness: r.fitness, declaredAt: r.declared_at }));
   });
 
 export const submitHealth = createServerFn({ method: "POST" })
@@ -1167,7 +1181,7 @@ export const listVehicles = createServerFn({ method: "GET" })
 
 export const createVehicle = createServerFn({ method: "POST" })
   .validator((input: unknown) => vehicleInput.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1197,7 +1211,7 @@ export const updateVehicle = createServerFn({ method: "POST" })
       notes: z.string().optional(),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { id, ...updates } = data;
@@ -1226,7 +1240,7 @@ export const updateVehicle = createServerFn({ method: "POST" })
 
 export const submitDailyMileage = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ vehicleId: z.string(), openingMileage: z.number().nonnegative(), closingMileage: z.number().nonnegative(), notes: z.string().max(500).optional() }).refine((value) => value.closingMileage >= value.openingMileage, { message: "Closing mileage cannot be less than opening mileage" }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1251,7 +1265,7 @@ const requestAttachmentSchema = z.object({
 
 export const storeRequestAttachments = createServerFn({ method: "POST" })
   .validator((input: unknown) => requestAttachmentSchema.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requirePermission(context.userId, "finance.request");
     const sql = await getSql();
@@ -1279,7 +1293,7 @@ export const storeRequestAttachments = createServerFn({ method: "POST" })
 
 export const resetVehicleMileage = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ vehicleId: z.string(), mileage: z.number().nonnegative().default(0), notes: z.string().max(500).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1293,7 +1307,7 @@ export const resetVehicleMileage = createServerFn({ method: "POST" })
 
 export const deleteVehicle = createServerFn({ method: "POST" })
   .validator((id: string) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     await requirePermission(context.userId, "fleet.manage");
     const sql = await getSql();
@@ -1377,7 +1391,7 @@ export const listPermits = createServerFn({ method: "GET" })
 
 export const createPermit = createServerFn({ method: "POST" })
   .validator((input: unknown) => permitInput.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1403,7 +1417,7 @@ export const approvePermit = createServerFn({ method: "POST" })
       reason: z.string().optional(),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1429,7 +1443,7 @@ export const approvePermit = createServerFn({ method: "POST" })
 
 export const deletePermit = createServerFn({ method: "POST" })
   .validator((id: string) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1652,7 +1666,7 @@ export const reviewAfterHoursVehicleRequest = createServerFn({ method: "POST" })
     status: z.enum(["Approved", "Rejected"]),
     note: z.string().trim().max(1000).optional(),
   }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     if (!can(profile, "fleet.manage") && !can(profile, "ehs.manage")) {
@@ -1763,7 +1777,7 @@ export const listCAPAs = createServerFn({ method: "GET" })
 
 export const createCAPA = createServerFn({ method: "POST" })
   .validator((input: unknown) => capaInput.parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1789,7 +1803,7 @@ export const updateCAPAStatus = createServerFn({ method: "POST" })
       resolution: z.string().optional(),
     }).parse(input)
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const { id, status, resolution } = data;
@@ -1821,7 +1835,7 @@ export const updateCAPAStatus = createServerFn({ method: "POST" })
 
 export const deleteCAPA = createServerFn({ method: "POST" })
   .validator((id: string) => id)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: id }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
@@ -1996,7 +2010,7 @@ export const createUser = createServerFn({ method: "POST" })
       permissions: z.array(z.string()).optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "org.users", "Only administrators can create users");
@@ -2030,7 +2044,7 @@ export const createUser = createServerFn({ method: "POST" })
 
 export const updateUserRole = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ userId: z.string(), role: roleSchema }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "org.users", "Only administrators can change roles");
@@ -2051,7 +2065,7 @@ export const setUserPermissions = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ userId: z.string(), permissions: z.array(z.enum(ALL_PERMISSIONS as [Permission, ...Permission[]])) }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "org.users", "Only administrators can grant permissions");
@@ -2066,7 +2080,7 @@ export const setUserPermissions = createServerFn({ method: "POST" })
 
 export const setUserPassword = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ userId: z.string(), password: z.string().min(8) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requirePermission(context.userId, "org.users", "Only administrators can reset passwords");
     const target = await loadProfile(data.userId);
@@ -2102,18 +2116,18 @@ async function setUserStatus(actorId: string, userId: string, status: "active" |
 
 export const suspendUser = createServerFn({ method: "POST" })
   .validator((userId: string) => userId)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(({ context, data: userId }) => setUserStatus(context.userId, userId, "suspended"));
 
 export const activateUser = createServerFn({ method: "POST" })
   .validator((userId: string) => userId)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(({ context, data: userId }) => setUserStatus(context.userId, userId, "active"));
 
 /** Accounts are never hard-deleted (audit trail); "delete" suspends. */
 export const deleteUser = createServerFn({ method: "POST" })
   .validator((userId: string) => userId)
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data: userId }) => {
     const target = await loadProfile(userId);
     if (target?.role === "Admin") throw new Error("Cannot delete an administrator");

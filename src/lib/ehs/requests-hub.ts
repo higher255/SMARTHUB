@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
 import { can } from "./access";
 import { audit, notify, requirePermission, requireProfile, usersWithPermission } from "./core";
@@ -121,7 +122,7 @@ export const updateJourneyStatus = createServerFn({ method: "POST" })
     status: z.enum(["Approved", "Rejected", "Started", "Completed", "Cancelled"]),
     reason: z.string().trim().max(1000).optional(),
   }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     const reviewer = can(profile, "fleet.manage") || can(profile, "ehs.manage");
@@ -164,7 +165,7 @@ export const updateJourneyStatus = createServerFn({ method: "POST" })
 
 export const shareJourneyLocation = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int().positive(), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), accuracy: z.number().min(0).max(10000) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     const sql = await getSql();
@@ -178,7 +179,7 @@ export const shareJourneyLocation = createServerFn({ method: "POST" })
 
 export const stopJourneyLocationSharing = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int().positive() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     const sql = await getSql();
@@ -304,7 +305,7 @@ export const listMyInspections = createServerFn({ method: "GET" })
 
 export const reviewInspection = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.string().min(1).max(80), note: z.string().trim().max(1000).optional() }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
     if (!can(profile, "fleet.manage") && !can(profile, "ehs.manage")) throw new Error("Only Fleet or EHS reviewers can review inspections");

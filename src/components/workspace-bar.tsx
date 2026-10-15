@@ -11,6 +11,7 @@ import { can, workspacesFor, type IconName, type Workspace, type WorkspaceGroup 
 import { ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
 import { getOrgBrand, type OrgBrand, type Profile } from "@/lib/ehs/server";
 import { formatDate } from "@/lib/ui/format";
+import { DailyFlowBanner } from "@/components/daily/daily";
 
 const ICONS: Record<IconName, LucideIcon> = {
   shield: Shield, gauge: Gauge, kanban: KanbanSquare, wallet: Wallet, users: Users, truck: Truck, briefcase: Briefcase,
@@ -167,6 +168,7 @@ export function TenantShell({ profile, children }: { profile: Profile; children:
           <ThemeToggle />
         </header>
         <SubscriptionBanner profile={profile} brand={brand} />
+        <DailyFlowBanner profile={profile} />
         {children}
       </div>
     </div>

@@ -5,7 +5,7 @@ import { AnnouncementComposer } from "@/components/announcement-composer";
 import { RoleGate } from "@/components/role-gate";
 import { useLive } from "@/lib/ui/use-live";
 import { TabBar } from "@/components/ui-kit";
-import { AttendanceBoard, LeaveApprovals } from "@/components/daily/daily";
+import { AttendanceBoard, HealthStatusBoard, LeaveApprovals } from "@/components/daily/daily";
 import { can } from "@/lib/ehs/access";
 import { deleteAnnouncement, listAnnouncements, listCertificates, listAllUsersForManager, type Announcement, type Certificate } from "@/lib/ehs/server";
 import type { EhsRole } from "@/lib/ehs/roles";
@@ -18,8 +18,9 @@ function HrPage() {
 }
 
 function HrDashboard({ name, role, userId, canLeave, canAttendance, canHr }: { name: string; role: EhsRole; userId: string; canLeave: boolean; canAttendance: boolean; canHr: boolean }) {
-  const [tab, setTab] = useState<"people" | "leave" | "attendance">(canHr ? "people" : canLeave ? "leave" : "attendance");
-  const tabs = [...(canHr ? [{ id: "people" as const, label: "People and certificates" }] : []), ...(canLeave ? [{ id: "leave" as const, label: "Leave requests" }] : []), ...(canAttendance ? [{ id: "attendance" as const, label: "Attendance" }] : [])];
+  const [tab, setTab] = useState<"people" | "leave" | "attendance" | "health">(canHr ? "people" : canLeave ? "leave" : "attendance");
+  const canViewHealth = role === "HR";
+  const tabs = [...(canHr ? [{ id: "people" as const, label: "People and certificates" }] : []), ...(canViewHealth ? [{ id: "health" as const, label: "Health declarations" }] : []), ...(canLeave ? [{ id: "leave" as const, label: "Leave requests" }] : []), ...(canAttendance ? [{ id: "attendance" as const, label: "Attendance" }] : [])];
   const [users, setUsers] = useState<Array<{ userId: string; fullName: string; role: string; department: string }>>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -36,6 +37,7 @@ function HrDashboard({ name, role, userId, canLeave, canAttendance, canHr }: { n
     <TabBar tabs={tabs} active={tab} onChange={setTab} />
     {tab === "leave" ? <LeaveApprovals userId={userId} /> : null}
     {tab === "attendance" ? <AttendanceBoard /> : null}
+    {tab === "health" && canViewHealth ? <HealthStatusBoard mode="history" /> : null}
     {tab === "people" ? <>
     <div className="mb-6 grid gap-4 sm:grid-cols-3"><StatCard label="Employees" value={users.length} hint="Organization team" /><StatCard label="Certificates" value={certificates.length} hint="Readiness records" /><StatCard label="Expiry alerts" value={expiring} hint="Due within 7 days" /></div>
     <div className="grid gap-6 lg:grid-cols-2">

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { CalendarDays, Clock, LogIn, LogOut, MapPin } from "lucide-react";
 import { Field, Panel } from "@/components/app-shell";
 import { EmptyState, Modal, Notice, StatusBadge, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
@@ -7,9 +8,55 @@ import {
   type AttendanceRow, type LeaveRow, type SiteReport,
 } from "@/lib/ehs/daily";
 import { formatDate, todayIso } from "@/lib/ui/format";
+import { listHealth, listTodayHealthStatus, type HealthRow, type TodayHealthStatus } from "@/lib/ehs/server";
+import type { Profile } from "@/lib/ehs/server";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 
 const time = (v: string | null) => (v ? new Date(v).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "-");
+/** Compact daily work sequence shown on every company workspace. */
+export function DailyFlowBanner({ profile }: { profile: Profile }) {
+  const [attendance, setAttendance] = useState<Awaited<ReturnType<typeof getMyAttendance>> | null>(null);
+  const [health, setHealth] = useState<HealthRow[]>([]);
+  const load = useCallback(async () => {
+    const [a, h] = await Promise.all([getMyAttendance().catch(() => null), listHealth().catch(() => [])]);
+    setAttendance(a); setHealth(h);
+  }, []);
+  useLive(load, 60000);
+  const checkedIn = Boolean(attendance?.today && !attendance.today.checkOut);
+  const today = todayIso();
+  const declared = health.some((row) => row.userId === profile.userId && row.createdAt.slice(0, 10) === today);
+  return <div className="border-b border-border bg-bg-subtle/70 px-4 py-2.5 sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+    <span className="font-semibold text-fg">Today’s start</span>
+    <span className={checkedIn ? "text-ok" : "text-warn"}>1. Attendance · {checkedIn ? "Checked in" : "Check-in required"}</span>
+    <span className={declared ? "text-ok" : "text-fg-muted"}>2. Fitness · {declared ? "Declared" : "Not declared"}</span>
+    <Link to="/dashboard" className="font-semibold text-accent hover:underline">Open My work</Link>
+  </div></div>;
+}
+
+/** HR gets company-wide declaration history; EHS gets only today's statuses. */
+export function HealthStatusBoard({ mode }: { mode: "today" | "history" }) {
+  const [todayRows, setTodayRows] = useState<TodayHealthStatus[]>([]);
+  const [history, setHistory] = useState<HealthRow[]>([]);
+  const load = useCallback(async () => {
+    if (mode === "today") setTodayRows(await listTodayHealthStatus().catch(() => []));
+    else setHistory(await listHealth().catch(() => []));
+  }, [mode]);
+  useLive(load, 30000);
+  if (mode === "today") return <Panel title="Employee health status · today">
+    {todayRows.length === 0 ? <EmptyState title="No active employees found" /> : <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-left text-sm">
+      <thead><tr className="border-b border-border text-xs text-fg-subtle"><th className="py-2 pr-3">Employee</th><th className="py-2 pr-3">Fitness</th><th className="py-2">Declared</th></tr></thead>
+      <tbody className="divide-y divide-border">{todayRows.map((row) => <tr key={row.userId}><td className="py-2.5 pr-3 font-medium">{row.userName}</td><td className="py-2.5 pr-3"><StatusBadge status={row.fitness ?? "Not declared"} /></td><td className="py-2.5 text-fg-muted">{row.declaredAt ? time(row.declaredAt) : "—"}</td></tr>)}</tbody>
+    </table></div>}
+    <p className="mt-2 text-xs text-fg-muted">EHS access is limited to today’s fitness status.</p>
+  </Panel>;
+  return <Panel title="Employee health declarations">
+    {history.length === 0 ? <EmptyState title="No health declarations yet" /> : <div className="max-h-[560px] overflow-auto"><table className="w-full min-w-[680px] text-left text-sm">
+      <thead className="sticky top-0 bg-bg-elevated"><tr className="border-b border-border text-xs text-fg-subtle"><th className="py-2 pr-3">Employee</th><th className="py-2 pr-3">Fitness</th><th className="py-2 pr-3">Temperature</th><th className="py-2 pr-3">Notes</th><th className="py-2">Date</th></tr></thead>
+      <tbody className="divide-y divide-border">{history.map((row) => <tr key={row.id}><td className="py-2.5 pr-3 font-medium">{row.userName}</td><td className="py-2.5 pr-3"><StatusBadge status={row.fitness} /></td><td className="py-2.5 pr-3">{row.temperature == null ? "—" : `${row.temperature} °C`}</td><td className="max-w-64 py-2.5 pr-3 text-fg-muted">{row.notes || "—"}</td><td className="py-2.5 text-fg-muted">{new Date(row.createdAt).toLocaleString()}</td></tr>)}</tbody>
+    </table></div>}
+  </Panel>;
+}
+
 
 // ------------------------------------------------------------ attendance
 

@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
 import { can } from "./access";
 import { audit, notify, requirePermission, requireProfile, usersWithPermission } from "./core";
@@ -121,7 +122,7 @@ export const updateSafetyObservation = createServerFn({ method: "POST" })
     id: z.number().int().positive(), status: z.enum(["Under Review", "Action Required", "Closed"]),
     assignedTo: z.string().min(1).max(100).optional(), dueDate: day.optional(), closureNote: z.string().trim().max(1000).optional(),
   }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "ehs.manage", "Only the company admin or EHS team can manage observations");
@@ -166,7 +167,7 @@ export const listWellbeingChallenges = createServerFn({ method: "GET" })
 export const createWellbeingChallenge = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ title: z.string().trim().min(3).max(100), description: z.string().trim().max(500).default(""),
     startsOn: day, endsOn: day, dailyStepGoal: z.number().int().min(1000).max(50000).default(6000) }).refine((x) => x.endsOn >= x.startsOn, "End date must be on or after start date").parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "wellbeing.manage");
@@ -182,7 +183,7 @@ export const createWellbeingChallenge = createServerFn({ method: "POST" })
 
 export const setWellbeingChallengeStatus = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int().positive(), status: z.enum(["Completed", "Cancelled"]) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "wellbeing.manage");
@@ -194,7 +195,7 @@ export const setWellbeingChallengeStatus = createServerFn({ method: "POST" })
 
 export const logWellbeingSteps = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ challengeId: z.number().int().positive(), entryDate: day, steps: z.number().int().min(0).max(100000) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "ehs.report");

@@ -24,7 +24,9 @@ export function useLive(load: () => void | Promise<unknown>, everyMs = 20000) {
 }
 
 export function errorMessage(error: unknown, fallback = "Something went wrong"): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error) return error;
-  return fallback;
+  const message = error instanceof Error && error.message ? error.message : typeof error === "string" && error ? error : fallback;
+  if (message.includes("Check in from My work before starting work.") && typeof window !== "undefined") {
+    window.alert(message);
+  }
+  return message;
 }

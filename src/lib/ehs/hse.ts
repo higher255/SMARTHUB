@@ -1,6 +1,7 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
 import { can, canAny } from "./access";
 import { audit, getUserFullName, notify, requirePermission, requireProfile, usersWithPermission, type Profile } from "./core";
@@ -26,7 +27,7 @@ export const recordWorkHours = createServerFn({ method: "POST" })
       notes: z.string().max(300).optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "hours.record", "You cannot record hours worked");
@@ -134,7 +135,7 @@ export const classifyIncident = createServerFn({ method: "POST" })
       occurredAt: z.string().datetime().optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "ehs.manage", "Only EHS officers can classify incidents");
@@ -193,7 +194,7 @@ export const createNcr = createServerFn({ method: "POST" })
       dueDate: dateStr.optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "ncr.raise", "You cannot raise non-conformance reports");
@@ -247,7 +248,7 @@ export const updateNcr = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ id: z.number().int(), status: z.enum(["Open", "In Progress", "Closed"]).optional(), assignedTo: z.string().optional(), closureNote: z.string().max(1000).optional() }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requireProfile(context.userId);
@@ -303,7 +304,7 @@ export const createRiskAssessment = createServerFn({ method: "POST" })
       reviewDate: dateStr.optional(),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "hira.manage", "Only EHS officers can manage risk assessments");
@@ -315,7 +316,7 @@ export const createRiskAssessment = createServerFn({ method: "POST" })
 
 export const setRiskAssessmentStatus = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), status: z.enum(["Open", "Controlled", "Closed"]) }).parse(input))
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "hira.manage");
@@ -355,7 +356,7 @@ export const registerSubcontractor = createServerFn({ method: "POST" })
       documents: z.array(z.object({ name: z.string().max(160), expires: dateStr.optional() })).max(20).default([]),
     }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "subcontractors.manage");
@@ -369,7 +370,7 @@ export const decideSubcontractor = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ id: z.number().int(), decision: z.enum(["Approved", "Rejected"]), validUntil: dateStr.optional(), note: z.string().max(500).optional() }).parse(input),
   )
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "subcontractors.manage");
