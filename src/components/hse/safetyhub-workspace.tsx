@@ -47,8 +47,8 @@ export function SafetyHubWorkspace({ profile, compact = false }: { profile: Prof
     </div>
     <div className={`grid gap-5 ${compact ? "" : "xl:grid-cols-2"}`}>
       <Panel title="Safety observations">
-        <p className="mb-3 text-xs text-fg-muted">Unsafe conditions, near misses and good practices; EHS follows each action to closure.</p>
-        {observations.length === 0 ? <EmptyState title="No observations yet" hint="Report a hazard, near miss or safe practice from the site." /> : <ul className="divide-y divide-border">
+        <p className="mb-3 text-xs text-fg-muted">Staff report hazards, near misses and good practice here; EHS reviews reports and tracks actions to closure.</p>
+        {observations.length === 0 ? <EmptyState title="No observations yet" hint={manage ? "Remind staff to report site hazards or good practice here." : "Report a site hazard, near miss or good practice here. EHS will follow up."} /> : <ul className="divide-y divide-border">
           {observations.map((o) => <li key={o.id} className="py-3">
             <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{o.title}</p><p className="mt-0.5 text-xs text-fg-muted">{o.category} · {o.location}{o.projectName ? ` · ${o.projectName}` : ""} · {o.reporterLabel}</p></div><div className="flex gap-2"><StatusBadge status={o.severity} /><StatusBadge status={o.status} /></div></div>
             <p className="mt-2 text-sm text-fg-muted">{o.description}</p>
@@ -70,7 +70,7 @@ export function SafetyHubWorkspace({ profile, compact = false }: { profile: Prof
 
       <Panel title="Wellbeing step challenges">
         <p className="mb-3 text-xs text-fg-muted">Voluntary activity challenge. Members see their own entries; the team sees only totals.</p>
-        {challenges.length === 0 ? <EmptyState title="No challenges right now" hint={canChallenge ? "Create a step challenge for your company." : "Your company has not started a challenge yet."} /> : <ul className="space-y-3">
+        {challenges.length === 0 ? <EmptyState title="No challenges right now" hint={canChallenge ? "Create a step challenge to launch it for your team." : "Ask your EHS lead to start a step challenge."} /> : <ul className="space-y-3">
           {challenges.map((c) => <li key={c.id} className="rounded-lg border border-border p-3">
             <div className="flex items-start justify-between gap-3"><div><p className="font-medium">{c.title}</p><p className="text-xs text-fg-muted">{c.startsOn} – {c.endsOn} · {c.dailyStepGoal.toLocaleString()} steps/day</p></div><StatusBadge status={c.status} /></div>
             {c.description ? <p className="mt-2 text-sm text-fg-muted">{c.description}</p> : null}
