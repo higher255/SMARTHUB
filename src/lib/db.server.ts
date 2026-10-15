@@ -106,13 +106,26 @@ function toSql(run: Run): Sql {
 
 function createNeonSql(): Promise<Sql> {
   globalRef.__pgSqlPromise__ ??= (async () => {
-    // Regular Postgres driver: node-postgres (`pg`) — works directly with Neon's
-    // pooled endpoint. One pool per process; warm serverless instances reuse it.
+    // Vercel functions scale horizontally. Supabase's session pooler (5432)
+    // reserves one server connection for every client and quickly reaches its
+    // client cap; use transaction mode for serverless traffic instead.
+    const connectionUrl = new URL(databaseUrl!);
+    if (connectionUrl.hostname.endsWith(".pooler.supabase.com") && connectionUrl.port === "5432") {
+      connectionUrl.port = "6543";
+    }
+
+    // Keep one client per warm function instance. The transaction pooler
+    // multiplexes these short-lived queries across the database's connections.
     const { Pool, types } = await import("pg");
     types.setTypeParser(OID_INT8, Number);
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
-    const pool = new Pool({ connectionString: databaseUrl });
+    const pool = new Pool({
+      connectionString: connectionUrl.toString(),
+      max: 1,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+    });
     return toSql(async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];

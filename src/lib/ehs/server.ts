@@ -1988,7 +1988,6 @@ export const createUser = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({
       email: z.string().email(),
-      password: z.string().min(8),
       fullName: z.string().min(1),
       role: roleSchema,
       department: z.string().optional(),
@@ -2000,12 +1999,23 @@ export const createUser = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "org.users", "Only administrators can create users");
+    if (!emailConfigured()) throw new Error("Email invitations are not configured. Contact the Smart Hub owner before adding users.");
     const extra = (data.permissions ?? []).filter((p): p is Permission => (ALL_PERMISSIONS as string[]).includes(p));
     const userId = await provisionUser({
-      email: data.email, password: data.password, fullName: data.fullName, role: data.role as EhsRole,
+      email: data.email, password: randomBytes(32).toString("base64url"), fullName: data.fullName, role: data.role as EhsRole,
       department: data.department, organizationId: profile.organizationId, permissions: extra,
     });
-    await notify(sql, { organizationId: profile.organizationId, userIds: [userId], title: "Your company account is ready", message: `Your ${ROLE_LABELS[data.role as EhsRole]} account has been created. Sign in with the email and temporary password provided by your company administrator.`, type: "account", link: "/login" });
+    let inviteSent = false;
+    try {
+      const baseUrl = process.env.BETTER_AUTH_URL?.trim() || process.env.APP_URL?.trim() || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+      const result = await auth.api.requestPasswordReset({
+        body: { email: data.email.trim().toLowerCase(), ...(baseUrl ? { redirectTo: `${baseUrl.replace(/\/$/, "")}/reset-password` } : {}) },
+      });
+      inviteSent = Boolean(result.status);
+    } catch {
+      inviteSent = false;
+    }
+    await notify(sql, { organizationId: profile.organizationId, userIds: [userId], title: "Your company account is ready", message: `Your ${ROLE_LABELS[data.role as EhsRole]} account has been created. Check your email for a secure link to choose your password, then sign in to Smart Hub.`, type: "account", link: "/login" });
     await notify(sql, { organizationId: profile.organizationId, userIds: (await usersWithPermission(sql, profile.organizationId, "org.users")).filter((id) => id !== context.userId), title: "New team member added", message: `${data.fullName} joined as ${ROLE_LABELS[data.role as EhsRole]}.`, type: "account", link: "/admin" });
     if (data.projectId) {
       await sql`insert into project_members (project_id, user_id, role, status, invited_by)
@@ -2014,7 +2024,7 @@ export const createUser = createServerFn({ method: "POST" })
         on conflict (project_id, user_id) do nothing`;
     }
     await audit(sql, profile.organizationId, context.userId, "create", "user", userId, { role: data.role, email: data.email });
-    return { success: true, userId };
+    return { success: true, userId, inviteSent };
   });
 
 export const updateUserRole = createServerFn({ method: "POST" })

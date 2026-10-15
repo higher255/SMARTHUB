@@ -215,7 +215,9 @@ export const auth = betterAuth({
   // (incl. the client's `/get-session`) skip the DB — this shrinks the "loading"
   // window and reduces auth flicker. See the `auth` skill for the full
   // flicker-prevention guidance (gate on `isPending`; SSR the session).
-  session: { cookieCache: { enabled: true, maxAge: 300 } },
+  // One active login per account. Different users can still sign in and work at
+  // the same time; a new login for this account replaces its earlier sessions.
+  session: { cookieCache: { enabled: true, maxAge: 30 } },
 
   // Local email/password — toggled only via `./email-password` (not a plugin).
   ...(emailAndPasswordEnabled
@@ -262,6 +264,15 @@ export const auth = betterAuth({
   // platform owner (server code opts the email in via allowNewUser). The only open door is the
   // very first account of a fresh installation, which becomes its administrator.
   databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const sql = await getSql();
+          await sql`delete from session where "userId" = ${session.userId}`;
+          return { data: session };
+        },
+      },
+    },
     user: {
       create: {
         before: async (user) => {

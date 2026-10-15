@@ -249,7 +249,6 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [newUser, setNewUser] = useState({
     fullName: "",
     email: "",
-    password: "",
     role: "Employee" as EhsRole,
     department: "",
   });
@@ -376,18 +375,15 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
     setBusy(true);
     setMsg("");
     try {
-      await createUser({
-        data: {
-          email: newUser.email,
-          password: newUser.password,
-          fullName: newUser.fullName,
-          role: newUser.role,
-          department: newUser.department || undefined,
-        },
-      });
-      setMsg(`User ${newUser.fullName} created successfully!`);
+      const result = await createUser({ data: {
+        email: newUser.email,
+        fullName: newUser.fullName,
+        role: newUser.role,
+        department: newUser.department || undefined,
+      } });
+      setMsg(result.inviteSent ? `User ${newUser.fullName} added. A password setup link was emailed to ${newUser.email}.` : `User ${newUser.fullName} added, but the invitation email could not be sent. Check email settings and send a password reset.`);
       setShowAddUserModal(false);
-      setNewUser({ fullName: "", email: "", password: "", role: "Employee", department: "" });
+      setNewUser({ fullName: "", email: "", role: "Employee", department: "" });
       await fetchData();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Failed to create user");
@@ -439,11 +435,11 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Permanently delete this user? This cannot be undone.")) return;
+    if (!confirm("Remove this user from the company? Their access will end immediately and the audit record will be retained.")) return;
     setBusy(true);
     try {
       await deleteUser({ data: userId });
-      setMsg(`User deleted`);
+      setMsg(`User removed from the company.`);
       await fetchData();
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Failed to delete user");
@@ -486,7 +482,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           <div>
             <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
               <ShieldAlert className="size-5 text-accent-bright" />
-              {role === "EHS_Officer" ? "EHS Officer Command Center" : "Admin & EHS Command Center"}
+              {role === "EHS_Officer" ? "EHS Administrator Command Center" : "Admin & EHS Command Center"}
             </h2>
             <p className="text-fg-muted mt-1">
               Welcome back, <span className="font-semibold text-fg">{name}</span>.
@@ -1141,7 +1137,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                                   disabled={busy}
                                 >
                                   <option value="Admin">Admin</option>
-                                  <option value="EHS_Officer">EHS Officer</option>
+                                  <option value="EHS_Officer">EHS Administrator</option>
                                   <option value="Manager">Manager</option>
                                   <option value="Project_Manager">Project Manager</option>
                                   <option value="Finance">Finance</option>
@@ -1492,16 +1488,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-fg">Password *</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={8}
-                    value={newUser.password}
-                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                    placeholder="Min 8 characters"
-                    className={inputClass}
-                  />
+                  <p className="text-xs text-fg-muted">We’ll email this user a secure link to choose their own password.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1513,7 +1500,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                       className={inputClass}
                     >
                       <option value="Admin">Admin</option>
-                      <option value="EHS_Officer">EHS Officer</option>
+                      <option value="EHS_Officer">EHS Administrator</option>
                       <option value="Manager">Manager</option>
                       <option value="Project_Manager">Project Manager</option>
                       <option value="Finance">Finance</option>

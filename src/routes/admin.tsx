@@ -17,6 +17,7 @@ import {
   listCAPAs,
   listAllUsers,
   createUser,
+  deleteUser,
   updateUserRole,
   suspendUser,
   setUserPassword,
@@ -204,7 +205,7 @@ function getVehicleStatusBadge(status: string): string {
 function AdminPage() {
   return (
     <RoleGate path="/admin">
-      {(profile) => <AdminDash name={profile.fullName} role={profile.role} />}
+      {(profile) => <AdminDash name={profile.fullName} role={profile.role} userId={profile.userId} />}
     </RoleGate>
   );
 }
@@ -213,7 +214,7 @@ function AdminPage() {
 // MAIN DASHBOARD
 // ============================================
 
-function AdminDash({ name, role }: { name: string; role: EhsRole }) {
+function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId: string }) {
   // ========== STATE ==========
   const [projects, setProjects] = useState<Project[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -236,7 +237,7 @@ function AdminDash({ name, role }: { name: string; role: EhsRole }) {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ fullName: "", email: "", password: "", role: "Employee" as EhsRole, department: "Operations", projectId: undefined as number | undefined, dualRole: false });
+  const [newUser, setNewUser] = useState({ fullName: "", email: "", role: "Employee" as EhsRole, department: "Operations", projectId: undefined as number | undefined, dualRole: false });
   const [noticeForm, setNoticeForm] = useState({ title: "", message: "", userId: "all" });
 
   // ========== DATA FETCHING ==========
@@ -363,10 +364,10 @@ function AdminDash({ name, role }: { name: string; role: EhsRole }) {
     event.preventDefault();
     setBusy(true);
     try {
-      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["hours.record", "ncr.raise"] : []) : [];
-      await createUser({ data: { ...newUser, permissions } });
-      setMsg("User created successfully.");
-      setNewUser({ fullName: "", email: "", password: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
+      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["teamleader.dashboard", "attendance.view", "hours.record", "ncr.raise"] : []) : [];
+      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, department: newUser.department, projectId: newUser.projectId, permissions } });
+      setMsg(result.inviteSent ? `User added. A password setup link was emailed to ${newUser.email}.` : "User added, but the invitation email could not be sent. Check email settings and send a password reset.");
+      setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
       await fetchData();
     } catch (error) {
       setMsg(error instanceof Error ? error.message : "Could not create user");
@@ -381,14 +382,25 @@ function AdminDash({ name, role }: { name: string; role: EhsRole }) {
     event.preventDefault();
     setBusy(true);
     try {
-      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["hours.record", "ncr.raise"] : []) : [];
-      await createUser({ data: { ...newUser, permissions } });
-      setMsg(`User ${newUser.fullName} created successfully.`);
+      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["teamleader.dashboard", "attendance.view", "hours.record", "ncr.raise"] : []) : [];
+      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, department: newUser.department, projectId: newUser.projectId, permissions } });
+      setMsg(result.inviteSent ? `User ${newUser.fullName} added. A password setup link was emailed to ${newUser.email}.` : `User ${newUser.fullName} added, but the invitation email could not be sent. Check email settings and send a password reset.`);
       setShowAddUserModal(false);
-      setNewUser({ fullName: "", email: "", password: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
+      setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
       await fetchData();
     } catch (error) { setMsg(error instanceof Error ? error.message : "Could not create user"); }
     finally { setBusy(false); }
+  };
+
+  const handleDeleteUser = async (user: { userId: string; fullName: string }) => {
+    if (!window.confirm(`Remove ${user.fullName} from this company? Their access will end immediately and the audit record will be retained.`)) return;
+    try {
+      await deleteUser({ data: user.userId });
+      setMsg(`${user.fullName} was removed from the company.`);
+      await fetchData();
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : "Could not remove user");
+    }
   };
 
   const handleSendNotification = async (event: React.FormEvent) => {
@@ -1072,6 +1084,11 @@ function AdminDash({ name, role }: { name: string; role: EhsRole }) {
                               <button onClick={async () => { const password = window.prompt("Enter a new password (minimum 8 characters):"); if (!password) return; try { await setUserPassword({ data: { userId: user.userId, password } }); setMsg("Password updated."); } catch (error) { setMsg(error instanceof Error ? error.message : "Could not update password"); } }} className="p-1 hover:bg-accent/10 rounded transition-colors" title="Reset password">
                                 <Lock className="size-4 text-fg-subtle" />
                               </button>
+                              {user.baseRole !== "Admin" && user.userId !== userId ? (
+                                <button onClick={() => void handleDeleteUser(user)} className="p-1 hover:bg-danger/10 rounded transition-colors" title="Remove user from company" aria-label={`Remove ${user.fullName} from company`}>
+                                  <Trash2 className="size-4 text-danger" />
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -1297,7 +1314,7 @@ function AdminDash({ name, role }: { name: string; role: EhsRole }) {
               <div className="flex items-center justify-between"><h3 className="text-xl font-bold text-fg">Create User Account</h3><button type="button" onClick={() => setShowAddUserModal(false)} className="p-1 text-fg-muted hover:bg-bg-subtle" title="Close"><XCircle className="size-5" /></button></div>
               <Field label="Full name"><input required value={newUser.fullName} onChange={(event) => setNewUser({ ...newUser, fullName: event.target.value })} className={inputClass} placeholder="Amina Juma" /></Field>
               <Field label="Email address"><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} className={inputClass} placeholder="user@company.com" /></Field>
-              <Field label="Temporary password"><input required minLength={8} type="password" value={newUser.password} onChange={(event) => setNewUser({ ...newUser, password: event.target.value })} className={inputClass} placeholder="Minimum 8 characters" /></Field>
+              <p className="text-xs text-fg-muted">We’ll email this user a secure link to choose their own password.</p>
               <div className="grid gap-3 sm:grid-cols-2"><Field label="Role"><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value as EhsRole })} className={inputClass}>{EHS_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{roleOption}</option>)}</select></Field><Field label="Department"><select value={newUser.department} onChange={(event) => setNewUser({ ...newUser, department: event.target.value })} className={inputClass}>{["Operations", "Health, Safety & Environment", "Finance", "Human Resources", "Administration"].map((department) => <option key={department}>{department}</option>)}</select></Field></div>
               {newUser.role === "Driver" || newUser.role === "Team_Leader" ? <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={newUser.dualRole} onChange={(event) => setNewUser({ ...newUser, dualRole: event.target.checked })} className="mt-0.5 accent-accent" /><span>{newUser.role === "Driver" ? "This user is also a team leader" : "This user is also a driver"}<span className="block text-xs text-fg-muted">They will see both relevant workspaces with the matching permissions.</span></span></label> : null}
               <Field label="Project assignment (optional)"><select value={newUser.projectId ?? ""} onChange={(event) => setNewUser({ ...newUser, projectId: event.target.value ? Number(event.target.value) : undefined })} className={inputClass}><option value="">No project yet</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
