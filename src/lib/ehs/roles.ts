@@ -16,7 +16,7 @@ export type EhsRole = (typeof EHS_ROLES)[number];
 
 export const ROLE_LABELS: Record<EhsRole, string> = {
   Admin: "Administrator",
-  EHS_Officer: "EHS Officer",
+  EHS_Officer: "EHS Administrator",
   Manager: "Manager",
   Project_Manager: "Project Manager",
   Finance: "Finance Officer",
@@ -51,6 +51,8 @@ export function pathForRole(role: string): string {
       return "/admin";
     case "EHS_Officer":
       return "/ehs";
+    case "Team_Leader":
+      return "/teamleader";
     case "Manager":
       return "/management";
     case "Project_Manager":

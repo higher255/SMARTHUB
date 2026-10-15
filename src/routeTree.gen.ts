@@ -23,6 +23,7 @@ import { Route as PlatformRouteImport } from './routes/platform'
 import { Route as ProjectmanagerRouteImport } from './routes/projectmanager'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RootRouteImport } from './routes/root'
+import { Route as TeamleaderRouteImport } from './routes/teamleader'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -95,6 +96,11 @@ const RootRoute = RootRouteImport.update({
   path: '/root',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamleaderRoute = TeamleaderRouteImport.update({
+  id: '/teamleader',
+  path: '/teamleader',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/projectmanager': typeof ProjectmanagerRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
+  '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/projectmanager': typeof ProjectmanagerRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
+  '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/projectmanager': typeof ProjectmanagerRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
+  '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/projectmanager'
     | '/reset-password'
     | '/root'
+    | '/teamleader'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/projectmanager'
     | '/reset-password'
     | '/root'
+    | '/teamleader'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/projectmanager'
     | '/reset-password'
     | '/root'
+    | '/teamleader'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -222,6 +234,7 @@ export interface RootRouteChildren {
   ProjectmanagerRoute: typeof ProjectmanagerRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RootRoute: typeof RootRoute
+  TeamleaderRoute: typeof TeamleaderRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -325,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RootRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/teamleader': {
+      id: '/teamleader'
+      path: '/teamleader'
+      fullPath: '/teamleader'
+      preLoaderRoute: typeof TeamleaderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -350,6 +370,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProjectmanagerRoute: ProjectmanagerRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RootRoute: RootRoute,
+  TeamleaderRoute: TeamleaderRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

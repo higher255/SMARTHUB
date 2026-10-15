@@ -56,7 +56,7 @@ const FEATURES = [
 
 const ROLES = [
   { name: "Administrator", desc: "Full system control, users & settings" },
-  { name: "EHS Officer", desc: "Day-to-day compliance & investigations" },
+  { name: "EHS Administrator", desc: "Day-to-day compliance & investigations" },
   { name: "Manager", desc: "Approvals, journeys & department oversight" },
   { name: "Driver", desc: "Health, inspections, journeys & parking" },
   { name: "Employee", desc: "Health declarations, notices & reporting" },

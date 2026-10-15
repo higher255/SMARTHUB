@@ -13,14 +13,18 @@ import {
 import type { Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { PayablesWorkspace, ReconciliationWorkspace, VatWorkspace } from "./operations";
 
-type Sub = "invoices" | "journal" | "reports" | "accounts" | "orders";
+type Sub = "invoices" | "bills" | "banking" | "tax" | "journal" | "reports" | "accounts" | "orders";
 
 export function AccountingWorkspace({ profile, projects }: { profile: Profile; projects: { id: number; name: string }[] }) {
   const [sub, setSub] = useState<Sub>("invoices");
   const tabs = useMemo(
     () => [
       { id: "invoices" as const, label: "Invoices" },
+      { id: "bills" as const, label: "Bills & Payables" },
+      { id: "banking" as const, label: "Bank reconciliation" },
+      ...(can(profile, "accounts.reports") ? [{ id: "tax" as const, label: "VAT" }] : []),
       { id: "journal" as const, label: "Journal" },
       ...(can(profile, "accounts.reports") ? [{ id: "reports" as const, label: "Reports" }] : []),
       { id: "accounts" as const, label: "Chart of accounts" },
@@ -32,6 +36,9 @@ export function AccountingWorkspace({ profile, projects }: { profile: Profile; p
     <div>
       <TabBar tabs={tabs} active={sub} onChange={setSub} />
       {sub === "invoices" ? <Invoices profile={profile} projects={projects} /> : null}
+      {sub === "bills" ? <PayablesWorkspace profile={profile} projects={projects} /> : null}
+      {sub === "banking" ? <ReconciliationWorkspace profile={profile} /> : null}
+      {sub === "tax" ? <VatWorkspace /> : null}
       {sub === "journal" ? <Journal profile={profile} /> : null}
       {sub === "reports" ? <Reports /> : null}
       {sub === "accounts" ? <Accounts profile={profile} /> : null}

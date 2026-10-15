@@ -19,9 +19,11 @@ export const PERMISSION_LABELS = {
   "ehs.manage": "Manage EHS records (incidents, CAPA, HIRA)",
   "ehs.view_org": "View company-wide EHS data",
   "ehs.report": "Report incidents and hazards",
+  "wellbeing.manage": "Manage company wellbeing challenges",
   "permits.approve": "Approve permits to work",
   "fleet.manage": "Manage vehicles and fleet",
   "fleet.driver_dashboard": "Use the personal driver workspace",
+  "teamleader.dashboard": "Use the team leader workspace",
   "hr.manage": "Manage HR records",
   "announce.post": "Post announcements",
   "finance.request": "Submit finance requests",
@@ -32,6 +34,7 @@ export const PERMISSION_LABELS = {
   "accounts.view": "View the books of account",
   "accounts.post": "Post journal vouchers",
   "accounts.invoices": "Create and issue invoices and receipts",
+  "accounts.payables": "Create, post and pay supplier bills",
   "accounts.reports": "Run financial statements",
   "hours.record": "Record crew hours worked",
   "ncr.raise": "Raise non-conformance reports",
@@ -51,7 +54,7 @@ const STAFF: Permission[] = ["finance.request", "ehs.report"];
 export const ROLE_PERMISSIONS: Record<EhsRole, Permission[]> = {
   Admin: ALL_PERMISSIONS,
   EHS_Officer: [
-    ...STAFF, "data.view_org", "ehs.manage", "ehs.view_org", "permits.approve", "fleet.manage", "projects.manage",
+    ...STAFF, "data.view_org", "ehs.manage", "ehs.view_org", "wellbeing.manage", "permits.approve", "fleet.manage", "projects.manage",
     "announce.post", "hours.record", "ncr.raise", "ncr.manage", "hira.manage", "subcontractors.manage", "people.view",
     "attendance.view",
   ],
@@ -66,10 +69,10 @@ export const ROLE_PERMISSIONS: Record<EhsRole, Permission[]> = {
   ],
   Finance: [
     "finance.request", "finance.view", "finance.approve", "finance.pay", "accounts.view", "accounts.post",
-    "accounts.invoices", "accounts.reports", "announce.post", "data.view_org", "people.view", "budgets.manage",
+    "accounts.invoices", "accounts.payables", "accounts.reports", "announce.post", "data.view_org", "people.view", "budgets.manage",
   ],
   HR: [...STAFF, "hr.manage", "announce.post", "people.view", "leave.approve", "attendance.view"],
-  Team_Leader: [...STAFF, "hours.record", "ncr.raise"],
+  Team_Leader: [...STAFF, "hours.record", "ncr.raise", "attendance.view", "teamleader.dashboard"],
   Team_Member: [...STAFF],
   Employee: [...STAFF],
   Driver: [...STAFF],
@@ -127,6 +130,7 @@ export type Workspace = {
 
 export const WORKSPACES: Workspace[] = [
   { path: "/dashboard", label: "My work", icon: "layout", group: "Daily" },
+  { path: "/teamleader", label: "Team & site", icon: "users", group: "Operations", anyOf: ["teamleader.dashboard"] },
   { path: "/management", label: "Management", icon: "gauge", group: "Company", anyOf: ["management.view"] },
   { path: "/projectmanager", label: "Projects", icon: "kanban", group: "Operations", anyOf: ["projects.manage"] },
   { path: "/driver", label: "Fleet", icon: "truck", group: "Operations", roles: ["Driver"], anyOf: ["fleet.manage", "fleet.driver_dashboard"] },

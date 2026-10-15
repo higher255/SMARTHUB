@@ -12,8 +12,9 @@ import {
 import { listIncidents, listProjects, type Incident, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
 
-type Sub = "kpis" | "ncr" | "hira" | "subs";
+type Sub = "kpis" | "observations" | "ncr" | "hira" | "subs";
 const th = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-subtle";
 const td = "px-3 py-2.5 text-sm";
 
@@ -23,6 +24,7 @@ export function HseWorkspace({ profile }: { profile: Profile }) {
   useLive(async () => setProjects((await listProjects().catch(() => [])).map((p) => ({ id: Number(p.id), name: p.name }))), 120000);
   const tabs = [
     { id: "kpis" as const, label: "Safety KPIs" },
+    { id: "observations" as const, label: "Observations & wellbeing" },
     { id: "ncr" as const, label: "NCRs" },
     { id: "hira" as const, label: "Risk assessments" },
     ...(can(profile, "subcontractors.manage") ? [{ id: "subs" as const, label: "Subcontractors" }] : []),
@@ -31,6 +33,7 @@ export function HseWorkspace({ profile }: { profile: Profile }) {
     <div>
       <TabBar tabs={tabs} active={sub} onChange={setSub} />
       {sub === "kpis" ? <Kpis profile={profile} projects={projects} /> : null}
+      {sub === "observations" ? <SafetyHubWorkspace profile={profile} /> : null}
       {sub === "ncr" ? <Ncrs profile={profile} projects={projects} /> : null}
       {sub === "hira" ? <Hira profile={profile} projects={projects} /> : null}
       {sub === "subs" ? <Subs /> : null}
