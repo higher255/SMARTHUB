@@ -131,6 +131,21 @@ const trustedOrigins: string[] = [
 ];
 
 const databaseUrl = env("DATABASE_URL");
+const configuredAuthSecret = env("BETTER_AUTH_SECRET");
+
+// Vercel may serve requests from different serverless instances. A random
+// per-process fallback secret makes signed auth cookies appear valid on one
+// request and invalid on the next, which surfaces as a client session followed
+// by server-side `Unauthorized`. Require stable production auth configuration.
+if (process.env.NODE_ENV === "production" && databaseUrl && !authDisabled) {
+  const missing = [
+    ...(!configuredAuthSecret ? ["BETTER_AUTH_SECRET"] : []),
+    ...(!explicitBaseURL ? ["BETTER_AUTH_URL"] : []),
+  ];
+  if (missing.length) {
+    throw new Error(`[auth] Missing required production environment variable(s): ${missing.join(", ")}`);
+  }
+}
 
 // Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
 // embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
@@ -148,7 +163,7 @@ export const auth = betterAuth({
   baseURL,
   // Deployed apps inject BETTER_AUTH_SECRET. Preview: process-stable secret on
   // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
-  secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
+  secret: configuredAuthSecret ?? previewAuthSecret(),
   database,
   emailVerification: {
     sendOnSignUp: true,
