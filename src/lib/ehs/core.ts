@@ -94,7 +94,7 @@ export async function requirePlatformAdmin(userId: string): Promise<Profile> {
   return profile;
 }
 
-/** EHS administration (Admin and EHS Officer by default). */
+/** EHS administration (company Admin and EHS Administrator by default). */
 export function isEhsAdmin(profile: Profile | null): boolean {
   return Boolean(profile) && can(profile, "ehs.manage");
 }
@@ -149,7 +149,7 @@ export type NotifyInput = {
   entityId?: string | number;
 };
 
-/** Deliver an in-app notification to each user (deduplicated). Never throws: a failed bell must not fail the action. */
+/** Deliver the same notification to the in-app bell and each intended user's email. */
 export async function notify(sql: Sql, n: NotifyInput): Promise<void> {
   const ids = [...new Set(n.userIds)].filter(Boolean);
   if (ids.length === 0) return;
@@ -159,16 +159,20 @@ export async function notify(sql: Sql, n: NotifyInput): Promise<void> {
       from unnest(${ids}::text[]) as u`;
     if (emailConfigured()) {
       const recipients = await sql<{ email: string }>`select distinct lower(u.email) as email from "user" u
-        join profiles p on p.user_id = u.id where p.user_id = any(${ids}::text[]) and p.status = 'active' and u.email <> ''`;
+        join profiles p on p.user_id = u.id
+        where p.user_id = any(${ids}::text[]) and p.status = 'active' and u.email <> ''
+          and ((${n.organizationId}::text is null and p.organization_id is null)
+            or p.organization_id::text = ${n.organizationId})`;
       const safe = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
       const origin = process.env.APP_URL || process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
       const href = n.link && origin ? `${origin.replace(/\/$/, "")}${n.link.startsWith("/") ? n.link : `/${n.link}`}` : "";
-      await Promise.allSettled(recipients.map(({ email }) => sendEmail({
+      const results = await Promise.allSettled(recipients.map(({ email }) => sendEmail({
         to: email,
         subject: n.title.slice(0, 180),
         text: `${n.title}\n\n${n.message}${href ? `\n\nOpen: ${href}` : ""}`,
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#17212b"><h2>${safe(n.title)}</h2><p>${safe(n.message).replace(/\n/g, "<br>")}</p>${href ? `<p><a href="${safe(href)}">Open in Smart Hub</a></p>` : ""}<hr><small>Smart Hub notification</small></div>`,
       })));
+      if (results.some((result) => result.status === "rejected")) console.error("[notify] one or more email deliveries failed");
     }
   } catch (error) {
     console.error("[notify] delivery failed");

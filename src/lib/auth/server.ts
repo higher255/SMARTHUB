@@ -228,11 +228,23 @@ export const auth = betterAuth({
           ...(emailConfigured()
             ? {
                 sendResetPassword: async ({ user, url }: { user: { email: string; name?: string }; url: string }) => {
+                  const sql = await getSql();
+                  const rows = await sql<{ company_name: string | null; role: string | null }>`
+                    select coalesce(o.display_name, o.name) as company_name, p.role
+                    from profiles p left join organizations o on o.id = p.organization_id
+                    where p.user_id = (select id from "user" where lower(email) = lower(${user.email}) limit 1)
+                    limit 1`;
+                  const companyName = rows[0]?.company_name;
+                  const isCompanyAdmin = rows[0]?.role === "Admin";
+                  const subject = companyName ? `Smart Hub access for ${companyName}` : "Reset your Smart Hub password";
+                  const intro = companyName
+                    ? `Your account has been created as ${isCompanyAdmin ? "an administrator" : "a team member"} for <strong>${escapeHtml(companyName)}</strong>. Use this secure link to choose your password and activate sign-in.`
+                    : "Use this secure link to choose a new password.";
                   await sendEmail({
                     to: user.email,
-                    subject: "Reset your Smart Hub password",
-                    html: `<p>Hello ${escapeHtml(user.name ?? "")},</p><p>Use this link to choose a new password. It works for one hour.</p><p><a href="${escapeHtml(url)}">Choose a new password</a></p><p>If you did not ask for this, ignore this message.</p>`,
-                    text: `Choose a new password (valid one hour): ${url}`,
+                    subject,
+                    html: `<p>Hello ${escapeHtml(user.name ?? "")},</p><p>${intro}</p><p>This secure link expires in one hour:</p><p><a href="${escapeHtml(url)}">Choose your password</a></p><p>After setting it, sign in at Smart Hub with this email address. If you did not expect this account, contact your company administrator.</p>`,
+                    text: `Hello ${user.name ?? ""}. ${companyName ? `Your account has been created as ${isCompanyAdmin ? "an administrator" : "a team member"} for ${companyName}. ` : ""}Choose your password using this secure link (valid for one hour): ${url}. Then sign in to Smart Hub with this email address.`,
                   });
                 },
               }

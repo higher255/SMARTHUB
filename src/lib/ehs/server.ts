@@ -24,6 +24,7 @@ import {
 import { allowNewUser, releaseNewUser } from "@/lib/auth/user-gate";
 import { auth } from "@/lib/auth/server";
 import { emailConfigured } from "./email";
+import { randomBytes } from "node:crypto";
 
 export type { Profile } from "./core";
 // ============================================
@@ -299,8 +300,8 @@ const projectInput = z.object({
   status: z.enum(["Planning", "Active", "Completed", "On Hold"]),
 });
 
-async function notifyUser(sql: Awaited<ReturnType<typeof getSql>>, userId: string, title: string, message: string) {
-  await sql`insert into notifications (user_id, title, message) values (${userId}, ${title}, ${message})`;
+async function notifyUser(sql: Awaited<ReturnType<typeof getSql>>, organizationId: string, userId: string, title: string, message: string, link: string) {
+  await notify(sql, { organizationId, userIds: [userId], title, message, type: "project", link });
 }
 
 async function requireProjectAccess(sql: Awaited<ReturnType<typeof getSql>>, projectId: number, userId: string) {
@@ -321,6 +322,8 @@ export const listProjects = createServerFn({ method: "GET" })
     const { clause } = getOrgWhereClause(profile, context.userId);
     const projectClause = profile?.role === "Client"
       ? sqlFragment(`exists (select 1 from project_members pm where pm.project_id = projects.id and pm.user_id = '${context.userId.replace(/'/g, "''")}' and pm.status in ('Accepted', 'Pending'))`)
+      : profile?.role === "Team_Leader" || can(profile, "teamleader.dashboard")
+        ? sqlFragment(`exists (select 1 from project_members pm where pm.project_id = projects.id and pm.user_id = '${context.userId.replace(/'/g, "''")}' and pm.status = 'Accepted')`)
       : clause;
     
     const rows = await sql<{
@@ -437,7 +440,7 @@ export const assignProjectMember = createServerFn({ method: "POST" })
     const target = await sql<{ user_id: string }>`select user_id from profiles where user_id = ${data.userId} and organization_id = ${access.project.organization_id}`;
     if (!target[0]) throw new Error("User is outside this project organization");
     await sql`insert into project_members (project_id, user_id, role, invited_by) values (${data.projectId}, ${data.userId}, ${data.role}, ${context.userId}) on conflict (project_id, user_id) do update set role = excluded.role, status = 'Pending', response_reason = null, invited_by = excluded.invited_by`;
-    await notifyUser(sql, data.userId, "Project assignment", `You have been invited to join project #${data.projectId}. Review the assignment in your dashboard.`);
+    await notifyUser(sql, access.project.organization_id!, data.userId, "Project assignment", `You have been invited to join project #${data.projectId}. Review the assignment in your dashboard.`, "/projects");
     return { success: true };
   });
 
@@ -449,8 +452,8 @@ export const respondToProjectAssignment = createServerFn({ method: "POST" })
     const sql = await getSql();
     const result = await sql<{ id: number }>`update project_members set status = ${data.status}, response_reason = ${data.reason?.trim() || null}, responded_at = now() where project_id = ${data.projectId} and user_id = ${context.userId} and status = 'Pending' returning id`;
     if (!result[0]) throw new Error("Pending assignment not found");
-    const project = await sql<{ user_id: string; name: string }>`select user_id, name from projects where id = ${data.projectId}`;
-    if (project[0]) await notifyUser(sql, project[0].user_id, `Project assignment ${data.status.toLowerCase()}`, `A team member has ${data.status.toLowerCase()} the assignment for ${project[0].name}.`);
+    const project = await sql<{ user_id: string; name: string; organization_id: string }>`select user_id, name, organization_id::text from projects where id = ${data.projectId}`;
+    if (project[0]) await notifyUser(sql, project[0].organization_id, project[0].user_id, `Project assignment ${data.status.toLowerCase()}`, `A team member has ${data.status.toLowerCase()} the assignment for ${project[0].name}.`, "/projects");
     return { success: true };
   });
 
@@ -472,7 +475,7 @@ export const createProjectMilestone = createServerFn({ method: "POST" })
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
     if (!access.canManage && access.project.user_id !== context.userId) throw new Error("Only project leaders can create milestones");
     await sql`insert into project_milestones (project_id, title, description, due_date, owner_id, created_by) values (${data.projectId}, ${data.title}, ${data.description || null}, ${data.dueDate || null}, ${data.ownerId || null}, ${context.userId})`;
-    if (data.ownerId) await notifyUser(sql, data.ownerId, "Milestone assigned", `${data.title} was assigned to you on project #${data.projectId}.`);
+    if (data.ownerId) await notifyUser(sql, access.project.organization_id!, data.ownerId, "Milestone assigned", `${data.title} was assigned to you on project #${data.projectId}.`, "/projects");
     return { success: true };
   });
 
@@ -497,7 +500,7 @@ export const requestProjectApproval = createServerFn({ method: "POST" })
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
     if (!access.canManage && access.project.user_id !== context.userId) throw new Error("Only project leaders can request approval");
     await sql`insert into project_approvals (project_id, approver_id) values (${data.projectId}, ${data.approverId}) on conflict (project_id, approver_id) do update set status = 'Pending', reason = null, decided_at = null`;
-    await notifyUser(sql, data.approverId, "Project approval requested", `Project #${data.projectId} is waiting for your approval.`);
+    await notifyUser(sql, access.project.organization_id!, data.approverId, "Project approval requested", `Project #${data.projectId} is waiting for your approval.`, "/projects");
     return { success: true };
   });
 
@@ -517,7 +520,7 @@ export const decideProjectApproval = createServerFn({ method: "POST" })
     const access = await requireProjectAccess(sql, data.projectId, context.userId);
     if (!access.canManage) throw new Error("Only management can decide project approvals");
     await sql`update project_approvals set status = ${data.status}, reason = ${data.reason?.trim() || null}, decided_at = now() where project_id = ${data.projectId} and approver_id = ${context.userId}`;
-    await notifyUser(sql, access.project.user_id, `Project ${data.status.toLowerCase()}`, `Project #${data.projectId} was ${data.status.toLowerCase()}${data.reason ? `: ${data.reason}` : "."}`);
+    await notifyUser(sql, access.project.organization_id!, access.project.user_id, `Project ${data.status.toLowerCase()}`, `Project #${data.projectId} was ${data.status.toLowerCase()}${data.reason ? `: ${data.reason}` : "."}`, "/projects");
     return { success: true };
   });
 
@@ -1046,7 +1049,6 @@ export const createTenant = createServerFn({ method: "POST" })
       slug: z.string().regex(/^[a-z0-9-]{2,40}$/, "Use lowercase letters, numbers and dashes"),
       adminEmail: z.string().email(),
       adminName: z.string().min(2).max(120),
-      adminPassword: z.string().min(10),
       currency: z.enum(["TZS", "USD"]).default("TZS"),
       vatRate: z.number().min(0).max(30).default(18),
       plan: z.string().max(40).default("standard"),
@@ -1059,6 +1061,7 @@ export const createTenant = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     await requirePlatformAdmin(context.userId);
+    if (!emailConfigured()) throw new Error("Set RESEND_API_KEY and EMAIL_FROM in Production before creating a company admin. The admin will receive a secure password setup link by email.");
     const taken = await sql`select 1 from organizations where slug = ${data.slug}`;
     if (taken[0]) throw new Error("That company code is already used");
     const email = data.adminEmail.trim().toLowerCase();
@@ -1070,12 +1073,24 @@ export const createTenant = createServerFn({ method: "POST" })
     const orgId = org[0]!.id;
     await sql`select acct_seed_chart(${orgId})`;
     const adminId = await provisionUser({
-      email, password: data.adminPassword, fullName: data.adminName, role: "Admin",
+      // The admin chooses their own password from the one-time reset link sent below.
+      email, password: randomBytes(32).toString("base64url"), fullName: data.adminName, role: "Admin",
       department: "Management", organizationId: orgId,
     });
-    await notify(sql, { organizationId: orgId, userIds: [adminId], title: "Company administrator account created", message: `Your administrator account for ${data.name} is ready. Sign in using the email and temporary password provided by your system owner.`, type: "account", link: "/login" });
+    let inviteSent = false;
+    try {
+      const baseUrl = process.env.BETTER_AUTH_URL?.trim() || process.env.APP_URL?.trim() || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+      const result = await auth.api.requestPasswordReset({
+        body: { email, ...(baseUrl ? { redirectTo: `${baseUrl.replace(/\/$/, "")}/reset-password` } : {}) },
+      });
+      inviteSent = Boolean(result.status);
+    } catch {
+      // Creation is durable; surface the mail issue so the owner can resend/reset safely.
+      inviteSent = false;
+    }
+    await notify(sql, { organizationId: orgId, userIds: [adminId], title: "Company administrator account created", message: `You have been created as an administrator for ${data.name}. Check your email for a secure link to choose your password, then sign in to Smart Hub.`, type: "account", link: "/login" });
     await audit(sql, orgId, context.userId, "create", "tenant", orgId, { name: data.name, adminId });
-    return { success: true, organizationId: orgId };
+    return { success: true, organizationId: orgId, inviteSent };
   });
 
 export const setTenantStatus = createServerFn({ method: "POST" })

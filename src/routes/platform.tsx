@@ -287,14 +287,14 @@ function PaymentDialog({ tenant: t, onClose, onDone }: { tenant: Tenant; onClose
 }
 
 function NewCompany({ onClose, onDone }: { onClose: () => void; onDone: (m: string) => void }) {
-  const [f, setF] = useState({ name: "", slug: "", adminName: "", adminEmail: "", adminPassword: "", currency: "TZS" as "TZS" | "USD", plan: "standard", maxUsers: "0", monthlyFee: "0", planDays: "0" });
+  const [f, setF] = useState({ name: "", slug: "", adminName: "", adminEmail: "", currency: "TZS" as "TZS" | "USD", plan: "standard", maxUsers: "0", monthlyFee: "0", planDays: "0" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <Modal title="New company" onClose={onClose} wide>
       <form className="space-y-3" onSubmit={async (e) => {
         e.preventDefault(); setBusy(true); setErr("");
-        try { await createTenant({ data: { name: f.name, slug: f.slug, adminName: f.adminName, adminEmail: f.adminEmail, adminPassword: f.adminPassword, currency: f.currency, vatRate: 18, plan: f.plan, maxUsers: Number(f.maxUsers) || 0, monthlyFee: Number(f.monthlyFee) || 0, planDays: Number(f.planDays) || 0 } }); onDone(`${f.name} created. Share the administrator's login with them.`); } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
+        try { const result = await createTenant({ data: { name: f.name, slug: f.slug, adminName: f.adminName, adminEmail: f.adminEmail, currency: f.currency, vatRate: 18, plan: f.plan, maxUsers: Number(f.maxUsers) || 0, monthlyFee: Number(f.monthlyFee) || 0, planDays: Number(f.planDays) || 0 } }); onDone(result.inviteSent ? `${f.name} created. A password setup link was emailed to ${f.adminEmail}. The admin will choose a private password before signing in.` : `${f.name} and its administrator account were created, but the invitation email could not be sent. Check Resend settings, then use Forgot password to send a fresh link.`); } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
       }}>
         <Notice msg={err} tone="danger" />
         <div className="grid gap-3 sm:grid-cols-2">
@@ -310,8 +310,8 @@ function NewCompany({ onClose, onDone }: { onClose: () => void; onDone: (m: stri
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Administrator name"><input required value={f.adminName} onChange={(e) => setF({ ...f, adminName: e.target.value })} className={inputCls} /></Field>
           <Field label="Administrator email"><input required type="email" value={f.adminEmail} onChange={(e) => setF({ ...f, adminEmail: e.target.value })} className={inputCls} /></Field>
-          <Field label="Temporary password (10+)"><input required minLength={10} value={f.adminPassword} onChange={(e) => setF({ ...f, adminPassword: e.target.value })} className={inputCls} /></Field>
         </div>
+        <p className="text-xs text-fg-muted">We’ll email the administrator the company name, their admin role, and a one-time link to choose their own password. No password is sent in plain text.</p>
         <div className="flex justify-end gap-2"><button type="button" className={btnGhost} onClick={onClose}>Cancel</button><button type="submit" disabled={busy} className={btnPrimary}>Create company</button></div>
       </form>
     </Modal>
