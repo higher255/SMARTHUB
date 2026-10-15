@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { RoleGate } from "@/components/role-gate";
-import { useLive } from "@/lib/ui/use-live";
+import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
 import { EHS_ROLES, ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
@@ -343,7 +343,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       await resetVehicleMileage({ data: { vehicleId, mileage } });
       setMsg("Vehicle mileage reset successfully.");
       await fetchData();
-    } catch (error) { setMsg(error instanceof Error ? error.message : "Could not reset mileage"); }
+    } catch (error) { setMsg(errorMessage(error, "Could not reset mileage")); }
   };
 
   const handleReportIncident = async (event: React.FormEvent) => {
@@ -356,7 +356,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       setMsg("Incident reported successfully.");
       await fetchData();
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Could not report incident");
+      setMsg(errorMessage(error, "Could not report incident"));
     } finally { setBusy(false); }
   };
 
@@ -370,7 +370,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
       await fetchData();
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Could not create user");
+      setMsg(errorMessage(error, "Could not create user"));
     } finally { setBusy(false); }
   };
 
@@ -388,7 +388,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       setShowAddUserModal(false);
       setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
       await fetchData();
-    } catch (error) { setMsg(error instanceof Error ? error.message : "Could not create user"); }
+    } catch (error) { setMsg(errorMessage(error, "Could not create user")); }
     finally { setBusy(false); }
   };
 
@@ -399,7 +399,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       setMsg(`${user.fullName} was removed from the company.`);
       await fetchData();
     } catch (error) {
-      setMsg(error instanceof Error ? error.message : "Could not remove user");
+      setMsg(errorMessage(error, "Could not remove user"));
     }
   };
 
@@ -411,7 +411,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
       await sendNotification({ data: { ...noticeForm, userIds } });
       setMsg("Notification sent to the selected users.");
       setNoticeForm({ title: "", message: "", userId: "all" });
-    } catch (error) { setMsg(error instanceof Error ? error.message : "Could not send notification"); }
+    } catch (error) { setMsg(errorMessage(error, "Could not send notification")); }
     finally { setBusy(false); }
   };
 
@@ -1059,7 +1059,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
                                   await updateUserRole({ data: { userId: user.userId, role: event.target.value as EhsRole } });
                                   setMsg("Role updated successfully.");
                                   await fetchData();
-                                } catch (error) { setMsg(error instanceof Error ? error.message : "Could not update role"); }
+                                } catch (error) { setMsg(errorMessage(error, "Could not update role")); }
                               }}
                             >
                               {EHS_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{ROLE_LABELS[roleOption]}</option>)}
@@ -1078,10 +1078,10 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
                               <button onClick={() => setPermUser(user)} className="p-1 hover:bg-accent/10 rounded transition-colors" title="Edit access" aria-label="Edit access">
                                 <Edit className="size-4 text-fg-subtle" />
                               </button>
-                              <button onClick={async () => { try { await suspendUser({ data: user.userId }); setMsg("User suspended."); await fetchData(); } catch (error) { setMsg(error instanceof Error ? error.message : "Could not suspend user"); } }} className="p-1 hover:bg-danger/10 rounded transition-colors" title="Suspend">
+                              <button onClick={async () => { try { await suspendUser({ data: user.userId }); setMsg("User suspended."); await fetchData(); } catch (error) { setMsg(errorMessage(error, "Could not suspend user")); } }} className="p-1 hover:bg-danger/10 rounded transition-colors" title="Suspend">
                                 <UserX className="size-4 text-fg-subtle" />
                               </button>
-                              <button onClick={async () => { const password = window.prompt("Enter a new password (minimum 8 characters):"); if (!password) return; try { await setUserPassword({ data: { userId: user.userId, password } }); setMsg("Password updated."); } catch (error) { setMsg(error instanceof Error ? error.message : "Could not update password"); } }} className="p-1 hover:bg-accent/10 rounded transition-colors" title="Reset password">
+                              <button onClick={async () => { const password = window.prompt("Enter a new password (minimum 8 characters):"); if (!password) return; try { await setUserPassword({ data: { userId: user.userId, password } }); setMsg("Password updated."); } catch (error) { setMsg(errorMessage(error, "Could not update password")); } }} className="p-1 hover:bg-accent/10 rounded transition-colors" title="Reset password">
                                 <Lock className="size-4 text-fg-subtle" />
                               </button>
                               {user.baseRole !== "Admin" && user.userId !== userId ? (

@@ -400,7 +400,7 @@ export const deleteAnnouncement = createServerFn({ method: "POST" })
 
 export const createJobOrder = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ title: z.string().min(1).max(160), description: z.string().max(1000).optional(), location: z.string().max(160).optional(), projectId: z.number().optional() }).parse(input))
-  .middleware([authMiddleware, workdayMiddleware])
+  .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await loadProfile(context.userId);

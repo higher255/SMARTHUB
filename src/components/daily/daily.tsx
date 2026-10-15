@@ -25,6 +25,7 @@ export function DailyFlowBanner({ profile }: { profile: Profile }) {
   const checkedIn = Boolean(attendance?.today && !attendance.today.checkOut);
   const today = todayIso();
   const declared = health.some((row) => row.userId === profile.userId && row.createdAt.slice(0, 10) === today);
+  if (profile.role === "Client") return null;
   return <div className="border-b border-border bg-bg-subtle/70 px-4 py-2.5 sm:px-6"><div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-5 gap-y-2 text-xs">
     <span className="font-semibold text-fg">Today’s start</span>
     <span className={checkedIn ? "text-ok" : "text-warn"}>1. Attendance · {checkedIn ? "Checked in" : "Check-in required"}</span>

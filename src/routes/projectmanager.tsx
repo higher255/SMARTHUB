@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { RoleGate } from "@/components/role-gate";
 import { Notice } from "@/components/ui-kit";
-import { useLive } from "@/lib/ui/use-live";
+import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { ProjectHealth } from "@/components/project-health";
 import { SiteReportsPanel } from "@/components/daily/daily";
 import { AppShell, Field, Panel, StatCard, inputClass, primaryBtn, LogoutButton } from "@/components/app-shell";
@@ -203,7 +203,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
       setMemberToAdd("");
       setMembers(await listProjectMembers({ data: selectedProject }));
       setMsg("Assignment sent for acceptance.");
-    } catch (error) { setMsg(error instanceof Error ? error.message : "Could not assign member"); }
+    } catch (error) { setMsg(errorMessage(error, "Could not assign member")); }
     finally { setBusy(false); }
   };
 
@@ -216,7 +216,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
       setMilestoneTitle(""); setMilestoneDueDate("");
       setMilestones(await listProjectMilestones({ data: selectedProject }));
       setMsg("Milestone added to the project.");
-    } catch (error) { setMsg(error instanceof Error ? error.message : "Could not add milestone"); }
+    } catch (error) { setMsg(errorMessage(error, "Could not add milestone")); }
     finally { setBusy(false); }
   };
 
@@ -497,7 +497,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
                   setMsg("Project created successfully!");
                   await refresh();
                 } catch (err) {
-                  setMsg(err instanceof Error ? err.message : "Could not create project");
+                  setMsg(errorMessage(err, "Could not create project"));
                 } finally { setBusy(false); }
               }}>
                 <div className="space-y-2">
@@ -592,7 +592,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
                     <option value="">Select approver</option>
                     {users.filter((user) => user.role === "Manager" || user.role === "Admin" || user.role === "EHS_Officer").map((user) => <option key={user.userId} value={user.userId}>{user.fullName} · {user.role}</option>)}
                   </select>
-                  <button disabled={!approvalApprover || busy} onClick={async () => { try { await requestProjectApproval({ data: { projectId: selectedProject, approverId: approvalApprover } }); setMsg("Approval requested."); } catch (error) { setMsg(error instanceof Error ? error.message : "Could not request approval"); } }} className="whitespace-nowrap rounded-md border border-accent/40 px-3 py-2 text-sm text-accent hover:bg-accent/10">Request approval</button>
+                  <button disabled={!approvalApprover || busy} onClick={async () => { try { await requestProjectApproval({ data: { projectId: selectedProject, approverId: approvalApprover } }); setMsg("Approval requested."); } catch (error) { setMsg(errorMessage(error, "Could not request approval")); } }} className="whitespace-nowrap rounded-md border border-accent/40 px-3 py-2 text-sm text-accent hover:bg-accent/10">Request approval</button>
                 </div>
               </div>
               <div className="rounded-xl border border-border bg-bg-elevated p-6 lg:col-span-2">
@@ -605,7 +605,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
                 <ul className="space-y-2">
                   {milestones.length === 0 ? <li className="text-sm text-fg-subtle">No milestones yet.</li> : milestones.map((milestone) => <li key={milestone.id} className="flex items-center justify-between rounded-md border border-border bg-bg px-3 py-3"><span><span className="block text-sm font-medium">{milestone.title}</span><span className="text-xs text-fg-muted">Due {milestone.dueDate || "not set"}</span></span><span className="text-xs text-fg-muted">{milestone.status}</span></li>)}
                 </ul>
-                <form onSubmit={async (event) => { event.preventDefault(); if (!selectedProject) return; try { await addProjectAttachment({ data: { projectId: selectedProject, fileName: attachmentName, fileUrl: attachmentUrl, attachmentType: "project-document" } }); setAttachmentName(""); setAttachmentUrl(""); setMsg("Attachment linked to the project."); } catch (error) { setMsg(error instanceof Error ? error.message : "Could not link attachment"); } }} className="mt-5 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row">
+                <form onSubmit={async (event) => { event.preventDefault(); if (!selectedProject) return; try { await addProjectAttachment({ data: { projectId: selectedProject, fileName: attachmentName, fileUrl: attachmentUrl, attachmentType: "project-document" } }); setAttachmentName(""); setAttachmentUrl(""); setMsg("Attachment linked to the project."); } catch (error) { setMsg(errorMessage(error, "Could not link attachment")); } }} className="mt-5 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row">
                   <input required value={attachmentName} onChange={(event) => setAttachmentName(event.target.value)} placeholder="Attachment name" className={inputClass} />
                   <input required type="url" value={attachmentUrl} onChange={(event) => setAttachmentUrl(event.target.value)} placeholder="https://..." className={inputClass} />
                   <button disabled={busy} className={`${primaryBtn} sm:max-w-40`} type="submit">Link file</button>
@@ -633,7 +633,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
                   setMsg("Task added successfully!");
                   await refresh();
                 } catch (err) {
-                  setMsg(err instanceof Error ? err.message : "Could not add task");
+                  setMsg(errorMessage(err, "Could not add task"));
                 }
               }}>
                 <div className="space-y-2">

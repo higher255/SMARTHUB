@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { RoleGate } from "@/components/role-gate";
 import { Notice } from "@/components/ui-kit";
-import { useLive } from "@/lib/ui/use-live";
+import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { HseWorkspace } from "@/components/hse/hse-workspace";
 import { HealthStatusBoard } from "@/components/daily/daily";
 import { AfterHoursVehiclePanel } from "@/components/requests/after-hours-vehicle";
@@ -387,7 +387,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setNewUser({ fullName: "", email: "", role: "Employee", department: "" });
       await fetchData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Failed to create user");
+      setMsg(errorMessage(err, "Failed to create user"));
     } finally {
       setBusy(false);
     }
@@ -401,7 +401,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setMsg(`Role updated successfully`);
       await fetchData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Failed to update role");
+      setMsg(errorMessage(err, "Failed to update role"));
     } finally {
       setBusy(false);
     }
@@ -415,7 +415,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setMsg(`User suspended`);
       await fetchData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Failed to suspend user");
+      setMsg(errorMessage(err, "Failed to suspend user"));
     } finally {
       setBusy(false);
     }
@@ -429,7 +429,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setMsg(`User activated`);
       await fetchData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Failed to activate user");
+      setMsg(errorMessage(err, "Failed to activate user"));
     } finally {
       setBusy(false);
     }
@@ -443,7 +443,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setMsg(`User removed from the company.`);
       await fetchData();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Failed to delete user");
+      setMsg(errorMessage(err, "Failed to delete user"));
     } finally {
       setBusy(false);
     }
