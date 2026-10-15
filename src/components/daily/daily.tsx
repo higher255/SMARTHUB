@@ -76,6 +76,7 @@ export function AttendanceCard({ projects, onActionComplete }: { projects: { id:
   const [workplace, setWorkplace] = useState<"office" | "other" | "">("");
   const [projectId, setProjectId] = useState<number | "">("");
   const [startAnother, setStartAnother] = useState(false);
+  const [showFullHistory, setShowFullHistory] = useState(false);
   const [msg, setMsg] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [reason, setReason] = useState("");
@@ -141,13 +142,16 @@ export function AttendanceCard({ projects, onActionComplete }: { projects: { id:
       {me?.recent.length ? <details className="rounded-lg border border-border px-3 py-2">
         <summary className="cursor-pointer text-sm font-medium">Recent attendance history</summary>
         <ul className="mt-2 divide-y divide-border">
-          {me.recent.slice(0, 12).map((row) => <li key={row.id} className="flex flex-wrap gap-x-3 gap-y-1 py-2 text-xs">
+          {me.recent.slice(0, showFullHistory ? 12 : 3).map((row) => <li key={row.id} className="flex flex-wrap gap-x-3 gap-y-1 py-2 text-xs">
             <span className="min-w-24 font-medium">{formatDate(row.workDate)}{row.sessionCount > 1 ? " · Multiple" : ""}</span>
             <span>In {time(row.checkIn)}</span><span>Out {row.checkOut ? time(row.checkOut) : "Not recorded"}</span>
             <span className="text-fg-muted">{row.checkOut ? duration(row.checkIn, row.checkOut) : row.workDate === darTodayIso() ? duration(row.checkIn, null) : "Hours unavailable"}</span>
             {row.autoCheckout ? <AutoCheckoutReview session={row} onUpdated={load} /> : null}
           </li>)}
         </ul>
+        {me.recent.length > 3 ? <button type="button" className="mt-2 text-xs font-semibold text-accent hover:underline" onClick={() => setShowFullHistory((show) => !show)}>
+          {showFullHistory ? "Show fewer records" : `Show all ${Math.min(me.recent.length, 12)} recent records`}
+        </button> : null}
       </details> : null}
     </Panel>
   );
