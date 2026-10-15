@@ -45,7 +45,23 @@ async function main() {
     return;
   }
 
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 1 });
+  // Vercel builds are short-lived and Supabase's session pooler (5432) can
+  // exhaust its small client limit when several builds/functions overlap.
+  // Use transaction mode for Supabase pooler URLs, matching db.server.ts.
+  const connectionUrl = new URL(databaseUrl);
+  if (
+    connectionUrl.hostname.endsWith(".pooler.supabase.com") &&
+    connectionUrl.port === "5432"
+  ) {
+    connectionUrl.port = "6543";
+  }
+
+  const pool = new pg.Pool({
+    connectionString: connectionUrl.toString(),
+    max: 1,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+  });
   const client = await pool.connect();
   try {
     await client.query(
