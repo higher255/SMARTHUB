@@ -149,15 +149,58 @@ export const updateJourneyStatus = createServerFn({ method: "POST" })
         await sql`update trips set status = 'Started', started_at = now() where id = ${data.id} and organization_id::text = ${profile.organizationId} and status = 'Approved'`;
       } else if (data.status === "Completed") {
         if (trip.status !== "Started") throw new Error("Only a started journey can be completed");
-        await sql`update trips set status = 'Completed', completed_at = now() where id = ${data.id} and organization_id::text = ${profile.organizationId} and status = 'Started'`;
+        await sql`update trips set status = 'Completed', completed_at = now(), last_latitude=null, last_longitude=null,
+          last_location_accuracy_m=null, last_location_at=null where id = ${data.id} and organization_id::text = ${profile.organizationId} and status = 'Started'`;
       } else {
         if (!(["Pending", "Approved"].includes(trip.status))) throw new Error("This journey can no longer be cancelled");
-        await sql`update trips set status = 'Cancelled', decision_note = 'Cancelled by requester' where id = ${data.id} and organization_id::text = ${profile.organizationId} and status = ${trip.status}`;
+        await sql`update trips set status = 'Cancelled', decision_note = 'Cancelled by requester', last_latitude=null, last_longitude=null,
+          last_location_accuracy_m=null, last_location_at=null where id = ${data.id} and organization_id::text = ${profile.organizationId} and status = ${trip.status}`;
       }
     }
     if (decision) await notify(sql, { organizationId: profile.organizationId, userIds: [trip.requested_by], title: `Journey ${data.status.toLowerCase()}`, message: data.reason ?? `Your journey was ${data.status.toLowerCase()}.`, type: "journey", link: "/driver", entityType: "trip", entityId: data.id });
     await audit(sql, profile.organizationId, context.userId, data.status.toLowerCase(), "trip", data.id, { reason: data.reason ?? null });
     return { success: true };
+  });
+
+export const shareJourneyLocation = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.number().int().positive(), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), accuracy: z.number().min(0).max(10000) }).parse(input))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    const rows = await sql`update trips set last_latitude=${data.latitude}, last_longitude=${data.longitude},
+      last_location_accuracy_m=${data.accuracy}, last_location_at=now()
+      where id=${data.id} and organization_id::text=${profile.organizationId} and driver_id=${context.userId} and status='Started'
+      returning id`;
+    if (!rows[0]) throw new Error("Only the assigned driver can share location while the journey is active");
+    return { success: true };
+  });
+
+export const stopJourneyLocationSharing = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.number().int().positive() }).parse(input))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const profile = await requireProfile(context.userId);
+    const sql = await getSql();
+    await sql`update trips set last_latitude=null,last_longitude=null,last_location_accuracy_m=null,last_location_at=null
+      where id=${data.id} and organization_id::text=${profile.organizationId} and driver_id=${context.userId} and status='Started'`;
+    return { success: true };
+  });
+
+export type ActiveJourneyLocation = { id: number; jmpNumber: string; driverName: string; vehicleLabel: string | null; origin: string; destination: string; latitude: number | null; longitude: number | null; accuracy: number | null; updatedAt: string | null };
+
+export const listActiveJourneyLocations = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const profile = await requirePermission(context.userId, "fleet.manage", "Fleet managers can view active journey locations");
+    const sql = await getSql();
+    const rows = await sql<{ id: number; jmp_number: string | null; driver_name: string | null; vehicle_label: string | null; origin: string; destination: string; latitude: number | null; longitude: number | null; accuracy: number | null; updated_at: string | null }>`select t.id,t.jmp_number,p.full_name driver_name,t.vehicle_label,t.origin,t.destination,
+      case when t.last_location_at>=now()-interval '5 minutes' then t.last_latitude else null end latitude,
+      case when t.last_location_at>=now()-interval '5 minutes' then t.last_longitude else null end longitude,
+      case when t.last_location_at>=now()-interval '5 minutes' then t.last_location_accuracy_m else null end accuracy,t.last_location_at::text updated_at
+      from trips t left join profiles p on p.user_id=t.driver_id and p.organization_id=t.organization_id
+      where t.organization_id::text=${profile.organizationId} and t.status='Started' order by t.started_at desc nulls last limit 50`;
+    return rows.map((r) => ({ id: r.id, jmpNumber: r.jmp_number ?? `JMP-${r.id}`, driverName: r.driver_name ?? "Driver", vehicleLabel: r.vehicle_label, origin: r.origin, destination: r.destination, latitude: r.latitude, longitude: r.longitude, accuracy: r.accuracy, updatedAt: r.updated_at } satisfies ActiveJourneyLocation));
   });
 
 export const submitInspection = createServerFn({ method: "POST" })
@@ -273,3 +316,4 @@ export const reviewInspection = createServerFn({ method: "POST" })
     await audit(sql, profile.organizationId, context.userId, "review", "vehicle_inspection", data.id, { note: data.note ?? null });
     return { success: true };
   });
+
