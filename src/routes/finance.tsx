@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BadgeCheck, BookOpen, Check, CheckCheck, Download, Search, Wallet, X } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { AnnouncementComposer } from "@/components/announcement-composer";
@@ -17,8 +17,15 @@ import {
 import { listProjects, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { emailDeliveryNote } from "@/lib/ui/email-status";
 
-export const Route = createFileRoute("/finance")({ component: FinancePage });
+export const Route = createFileRoute("/finance")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const id = Number(search.request);
+    return Number.isInteger(id) && id > 0 ? { request: id } : {};
+  },
+  component: FinancePage,
+});
 
 function FinancePage() {
   return <RoleGate path="/finance">{(profile) => <FinanceDash profile={profile} />}</RoleGate>;
@@ -29,6 +36,7 @@ type Stats = Awaited<ReturnType<typeof getFinanceDashboardStats>>;
 type Budget = Awaited<ReturnType<typeof getProjectBudgetSummary>>[number];
 
 function FinanceDash({ profile }: { profile: Profile }) {
+  const { request: requestId } = Route.useSearch();
   const brand = useOrgBrand();
   const currency = brand?.currency ?? "TZS";
   const canView = can(profile, "finance.view");
@@ -43,6 +51,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
   const [loadError, setLoadError] = useState("");
   const [selected, setSelected] = useState<FinanceRequest | null>(null);
   const [budgetFor, setBudgetFor] = useState<number | null>(null);
+  const openedLinkedRequest = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     if (!canView && !canHandleRequests) return;
@@ -59,6 +68,14 @@ function FinanceDash({ profile }: { profile: Profile }) {
     setSelected((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
   }, [canView, canHandleRequests]);
   useLive(load, 15000);
+  useEffect(() => {
+    if (!requestId || requestId === openedLinkedRequest.current) return;
+    const request = requests.find((item) => item.id === requestId);
+    if (request) {
+      setSelected(request);
+      openedLinkedRequest.current = requestId;
+    }
+  }, [requestId, requests]);
   useLive(async () => setProjects((await listProjects().catch(() => [])).map((p) => ({ id: Number(p.id), name: p.name }))), 120000);
 
   const projectName = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
@@ -124,6 +141,23 @@ function FinanceDash({ profile }: { profile: Profile }) {
               </Panel>
             </div>
           </div>
+          <Panel title="Recent finance activity">
+            {stats.recent.length === 0 ? <EmptyState title="No finance activity yet" hint="New requests, decisions and payments will appear here." /> : (
+              <ul className="divide-y divide-border">
+                {stats.recent.slice(0, 6).map((item) => {
+                  const request = requests.find((row) => row.id === item.id);
+                  return (
+                    <li key={item.id}>
+                      <button type="button" disabled={!request} onClick={() => request && setSelected(request)} className="flex w-full items-center gap-3 py-3 text-left transition hover:bg-bg-subtle/60 disabled:cursor-default">
+                        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{item.title}</span><span className="block text-xs text-fg-muted">{item.requestNumber} · {item.requestedBy} · {formatDate(item.createdAt)}</span></span>
+                        <span className="shrink-0 text-right"><span className="block text-sm font-semibold tabular-nums">{formatMoney(item.amount, currency)}</span><StatusBadge status={item.status} /></span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Panel>
           <AnnouncementComposer />
         </div>
       ) : null}
@@ -182,7 +216,8 @@ function actionFor(profile: Profile, r: FinanceRequest): string | null {
 function RequestsTab({ profile, requests, projectName, onOpen, currency }: { profile: Profile; requests: FinanceRequest[]; projectName: Map<number, string>; onOpen: (r: FinanceRequest) => void; currency: string }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const rows = useMemo(() => requests.filter((r) => (!status || r.status === status) && (!q || `${r.title} ${r.requestNumber} ${r.requestedBy}`.toLowerCase().includes(q.toLowerCase()))), [requests, q, status]);
+  const [category, setCategory] = useState("");
+  const rows = useMemo(() => requests.filter((r) => (!status || r.status === status) && (!category || r.category === category) && (!q || `${r.title} ${r.requestNumber} ${r.requestedBy} ${r.category} ${r.projectId == null ? "company office" : projectName.get(r.projectId) ?? ""}`.toLowerCase().includes(q.toLowerCase()))), [requests, q, status, category, projectName]);
 
   const exportCsv = () => {
     const lines = [["Number", "Date", "Requested by", "Project", "Title", "Category", "Amount", "Status"], ...rows.map((r) => [r.requestNumber, r.createdAt.slice(0, 10), r.requestedBy, r.projectId == null ? "Company / office" : projectName.get(r.projectId) ?? `Project ${r.projectId}`, r.title, r.category, String(r.amount), r.status])];
@@ -199,6 +234,7 @@ function RequestsTab({ profile, requests, projectName, onOpen, currency }: { pro
       <div className="flex flex-wrap gap-3">
         <div className="relative min-w-56 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-fg-subtle" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search number, title or person" className={`${inputCls} pl-9`} /></div>
         <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${inputCls} w-44`}><option value="">All statuses</option>{["Submitted", "Under Review", "Approved", "Paid", "Rejected", "Cancelled"].map((s) => <option key={s}>{s}</option>)}</select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${inputCls} w-44`}><option value="">All categories</option>{["Material", "Equipment", "Labor", "Transport", "Other"].map((value) => <option key={value}>{value}</option>)}</select>
         <button type="button" className={btnGhost} onClick={exportCsv}><Download className="size-4" /> CSV</button>
       </div>
       {rows.length === 0 ? <EmptyState title="No requests match" /> : (
@@ -240,7 +276,11 @@ function RequestModal({ profile, request: r, project, onClose, onChanged }: { pr
 
   const run = async (fn: () => Promise<{ message?: string } | unknown>, done: string) => {
     setBusy(true); setErr("");
-    try { await fn(); onChanged(done); onClose(); } catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
+    try {
+      const result = await fn() as { emailStatus?: string } | undefined;
+      onChanged(`${done}${emailDeliveryNote(result?.emailStatus)}`);
+      onClose();
+    } catch (e) { setErr(errorMessage(e)); } finally { setBusy(false); }
   };
 
   return (

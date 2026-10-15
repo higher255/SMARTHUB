@@ -179,15 +179,15 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       organizationId: profile.organizationId,
       userIds: approvers.filter((id) => id !== context.userId),
       title: (requiresManager ? `${created.request_number} needs your endorsement` : `${created.request_number} needs approval`) + (overBudget ? " (over budget)" : ""),
-      message: overBudget ? `${summary}. Over budget by ${money(overBy, currency)}.` : summary, type: "finance_request", link: "/finance", entityType: "finance_request", entityId: created.id,
+      message: overBudget ? `${summary}. Over budget by ${money(overBy, currency)}.` : summary, type: "finance_request", link: `/finance?request=${created.id}`, entityType: "finance_request", entityId: created.id,
     });
-    await notify(sql, {
+    const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [context.userId],
       title: `${created.request_number} submitted`,
       message: requiresManager
         ? "Your request is above the manager limit and goes to a manager first, then to finance."
         : "Your request was sent to finance for approval.",
-      type: "finance_request", link: "/dashboard", entityType: "finance_request", entityId: created.id,
+      type: "finance_request", link: `/dashboard?request=${created.id}`, entityType: "finance_request", entityId: created.id,
     });
     if (project[0] && project[0].user_id !== context.userId && !approvers.includes(project[0].user_id)) {
       await notify(sql, {
@@ -197,7 +197,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       });
     }
     await audit(sql, profile.organizationId, context.userId, "create", "finance_request", created.id, { amount: data.amount });
-    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager, overBudget };
+    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager, overBudget, emailStatus: requesterNotice.emailStatus };
   });
 
 export const listFinanceRequests = createServerFn({ method: "GET" })
@@ -265,15 +265,15 @@ export const endorseFinanceRequest = createServerFn({ method: "POST" })
     await notify(sql, {
       organizationId: profile.organizationId, userIds: approvers, title: `${r.request_number} endorsed, ready for approval`,
       message: `${name} endorsed ${money(num(r.amount), r.currency)} requested by ${r.requested_by}: ${r.title}`,
-      type: "finance_request", link: "/finance", entityType: "finance_request", entityId: r.id,
+      type: "finance_request", link: `/finance?request=${r.id}`, entityType: "finance_request", entityId: r.id,
     });
-    await notify(sql, {
+    const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} endorsed`,
-      message: `${name} endorsed your request. It is now with finance for approval.`, type: "finance_request", link: "/dashboard",
+      message: `${name} endorsed your request. It is now with finance for approval.`, type: "finance_request", link: `/dashboard?request=${r.id}`,
       entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "endorse", "finance_request", r.id);
-    return { success: true, message: "Request endorsed" };
+    return { success: true, message: "Request endorsed", emailStatus: requesterNotice.emailStatus };
   });
 
 export const approveFinanceRequest = createServerFn({ method: "POST" })
@@ -292,19 +292,19 @@ export const approveFinanceRequest = createServerFn({ method: "POST" })
         notes = coalesce(${data.notes ?? null}, notes), updated_at = now()
       where id = ${r.id} and organization_id = ${profile.organizationId} and status = ${r.status} returning id`;
     if (!updated[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
-    await notify(sql, {
+    const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} approved`,
       message: `${name} approved ${money(num(r.amount), r.currency)} for "${r.title}". Payment is next.`, type: "finance_approved",
-      link: "/dashboard", entityType: "finance_request", entityId: r.id,
+      link: `/dashboard?request=${r.id}`, entityType: "finance_request", entityId: r.id,
     });
     const payers = await usersWithPermission(sql, profile.organizationId, "finance.pay");
     await notify(sql, {
       organizationId: profile.organizationId, userIds: payers.filter((id) => id !== context.userId), title: `${r.request_number} ready to pay`,
-      message: `${money(num(r.amount), r.currency)} to ${r.requested_by}: ${r.title}`, type: "finance_request", link: "/finance",
+      message: `${money(num(r.amount), r.currency)} to ${r.requested_by}: ${r.title}`, type: "finance_request", link: `/finance?request=${r.id}`,
       entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "approve", "finance_request", r.id);
-    return { success: true, message: "Finance request approved" };
+    return { success: true, message: "Finance request approved", emailStatus: requesterNotice.emailStatus };
   });
 
 export const rejectFinanceRequest = createServerFn({ method: "POST" })
@@ -320,13 +320,13 @@ export const rejectFinanceRequest = createServerFn({ method: "POST" })
         notes = ${data.reason}, updated_at = now()
       where id = ${r.id} and organization_id = ${profile.organizationId} and status = ${r.status} returning id`;
     if (!updated[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
-    await notify(sql, {
+    const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} rejected`,
-      message: `${name} rejected "${r.title}". Reason: ${data.reason}`, type: "finance_rejected", link: "/dashboard",
+      message: `${name} rejected "${r.title}". Reason: ${data.reason}`, type: "finance_rejected", link: `/dashboard?request=${r.id}`,
       entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "reject", "finance_request", r.id, { reason: data.reason });
-    return { success: true, message: "Finance request rejected" };
+    return { success: true, message: "Finance request rejected", emailStatus: requesterNotice.emailStatus };
   });
 
 export const cancelFinanceRequest = createServerFn({ method: "POST" })
@@ -361,13 +361,13 @@ export const markFinanceRequestPaid = createServerFn({ method: "POST" })
     } catch (error) {
       throw friendly(error);
     }
-    await notify(sql, {
+    const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} paid`,
       message: `${money(num(r.amount), r.currency)} was paid via ${data.paymentMethod}. Reference: ${data.paymentReference}`, type: "finance_paid",
-      link: "/dashboard", entityType: "finance_request", entityId: r.id,
+      link: `/dashboard?request=${r.id}`, entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "pay", "finance_request", r.id, { reference: data.paymentReference });
-    return { success: true, message: "Payment recorded and posted to the ledger" };
+    return { success: true, message: "Payment recorded and posted to the ledger", emailStatus: requesterNotice.emailStatus };
   });
 
 export const getProjectBudgetSummary = createServerFn({ method: "GET" })
@@ -415,7 +415,8 @@ export const getFinanceDashboardStats = createServerFn({ method: "GET" })
         coalesce(sum(amount) filter (where status = 'Paid'),0) as paid_amount
       from finance_requests where organization_id = ${org}`;
     const byCategory = await sql<{ category: string; count: number; total_amount: string | number }>`
-      select category, count(*)::int as count, coalesce(sum(amount),0) as total_amount from finance_requests where organization_id = ${org} group by category`;
+      select category, count(*)::int as count, coalesce(sum(amount),0) as total_amount from finance_requests where organization_id = ${org}
+        and status in ('Submitted','Under Review','Approved','Paid') group by category`;
     const recent = await sql<{ id: number; request_number: string; title: string; amount: string | number; status: string; requested_by: string; created_at: string }>`
       select id, request_number, title, amount, status, requested_by, created_at from finance_requests where organization_id = ${org} order by created_at desc limit 10`;
     const s = sums[0]!;

@@ -149,33 +149,50 @@ export type NotifyInput = {
   entityId?: string | number;
 };
 
+export type NotifyResult = {
+  inAppSaved: boolean;
+  emailStatus: "sent" | "not_configured" | "no_recipient" | "failed";
+};
+
 /** Deliver the same notification to the in-app bell and each intended user's email. */
-export async function notify(sql: Sql, n: NotifyInput): Promise<void> {
+export async function notify(sql: Sql, n: NotifyInput): Promise<NotifyResult> {
   const ids = [...new Set(n.userIds)].filter(Boolean);
-  if (ids.length === 0) return;
+  if (ids.length === 0) return { inAppSaved: true, emailStatus: "no_recipient" };
+  let inAppSaved = true;
   try {
     await sql`insert into notifications (user_id, organization_id, title, message, type, link, entity_type, entity_id)
       select u, ${n.organizationId}, ${n.title}, ${n.message}, ${n.type ?? "info"}, ${n.link ?? null}, ${n.entityType ?? null}, ${n.entityId == null ? null : String(n.entityId)}
       from unnest(${ids}::text[]) as u`;
-    if (emailConfigured()) {
-      const recipients = await sql<{ email: string }>`select distinct lower(u.email) as email from "user" u
-        join profiles p on p.user_id::text = u.id::text
-        where p.user_id::text = any(${ids}::text[]) and p.status = 'active' and u.email <> ''
-          and ((${n.organizationId}::text is null and p.organization_id is null)
-            or p.organization_id::text = ${n.organizationId})`;
-      const safe = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-      const origin = process.env.APP_URL || process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-      const href = n.link && origin ? `${origin.replace(/\/$/, "")}${n.link.startsWith("/") ? n.link : `/${n.link}`}` : "";
-      const results = await Promise.allSettled(recipients.map(({ email }) => sendEmail({
-        to: email,
-        subject: n.title.slice(0, 180),
-        text: `${n.title}\n\n${n.message}${href ? `\n\nOpen: ${href}` : ""}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#17212b"><h2>${safe(n.title)}</h2><p>${safe(n.message).replace(/\n/g, "<br>")}</p>${href ? `<p><a href="${safe(href)}">Open in Smart Hub</a></p>` : ""}<hr><small>Smart Hub notification</small></div>`,
-      })));
-      if (results.some((result) => result.status === "rejected")) console.error("[notify] one or more email deliveries failed");
-    }
   } catch (error) {
-    console.error("[notify] delivery failed");
+    inAppSaved = false;
+    console.error("[notify] in-app delivery failed");
+  }
+
+  if (!emailConfigured()) return { inAppSaved, emailStatus: "not_configured" };
+  try {
+    const recipients = await sql<{ email: string }>`select distinct lower(u.email) as email from "user" u
+      join profiles p on p.user_id::text = u.id::text
+      where p.user_id::text = any(${ids}::text[]) and p.status = 'active' and coalesce(u.email, '') <> ''
+        and ((${n.organizationId}::text is null and p.organization_id is null)
+          or p.organization_id::text = ${n.organizationId})`;
+    if (!recipients.length) return { inAppSaved, emailStatus: "no_recipient" };
+    const safe = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+    const origin = process.env.APP_URL || process.env.BETTER_AUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const href = n.link && origin ? `${origin.replace(/\/$/, "")}${n.link.startsWith("/") ? n.link : `/${n.link}`}` : "";
+    const results = await Promise.allSettled(recipients.map(({ email }) => sendEmail({
+      to: email,
+      subject: n.title.slice(0, 180),
+      text: `${n.title}\n\n${n.message}${href ? `\n\nOpen: ${href}` : ""}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#17212b"><h2>${safe(n.title)}</h2><p>${safe(n.message).replace(/\n/g, "<br>")}</p>${href ? `<p><a href="${safe(href)}">Open in Smart Hub</a></p>` : ""}<hr><small>Smart Hub notification</small></div>`,
+    })));
+    if (results.some((result) => result.status === "rejected")) {
+      console.error("[notify] one or more email deliveries failed");
+      return { inAppSaved, emailStatus: "failed" };
+    }
+    return { inAppSaved, emailStatus: "sent" };
+  } catch (error) {
+    console.error("[notify] email delivery failed");
+    return { inAppSaved, emailStatus: "failed" };
   }
 }
 

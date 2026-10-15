@@ -33,6 +33,7 @@ export function RequestTimeline({ request }: { request: FinanceRequest }) {
           <div className="min-w-0 text-sm">
             <p className={s.done ? "font-medium" : s.current ? "font-medium text-accent" : "text-fg-muted"}>{s.label}</p>
             {s.done && (s.by || s.at) ? <p className="text-xs text-fg-muted">{[s.by, s.at ? formatDate(s.at) : null].filter(Boolean).join(" · ")}</p> : null}
+            {s.label === "Paid" && request.status === "Paid" && (request.paymentMethod || request.paymentReference) ? <p className="text-xs text-fg-muted">{[request.paymentMethod ? `Via ${request.paymentMethod}` : null, request.paymentReference ? `Ref ${request.paymentReference}` : null].filter(Boolean).join(" · ")}</p> : null}
             {!s.done && s.current ? <p className="text-xs text-fg-muted">Waiting</p> : null}
           </div>
         </li>

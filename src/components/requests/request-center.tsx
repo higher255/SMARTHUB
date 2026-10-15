@@ -10,6 +10,7 @@ import { INSPECTION_ITEMS, createJourneyPlan, listVehicleOptions, submitInspecti
 import { createPermit } from "@/lib/ehs/server";
 import { formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage } from "@/lib/ui/use-live";
+import { emailDeliveryNote } from "@/lib/ui/email-status";
 
 type Project = { id: number; name: string };
 export type OtherKind = "hazard" | "leave";
@@ -111,7 +112,7 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
           } });
           const failed = await uploadPending("finance_request", r.requestId, files);
           const route = departmentNeedsReview(t.department) ? `${t.department} reviews it first, then finance.` : r.requiresManager ? "A manager endorses it, then finance." : "It went to finance.";
-          onDone(`${r.requestNumber} sent. ${route}${failed ? ` ${failed} file(s) could not be uploaded.` : ""}`);
+          onDone(`${r.requestNumber} sent. ${route}${emailDeliveryNote(r.emailStatus)}${failed ? ` ${failed} file(s) could not be uploaded.` : ""}`);
         } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
       }}>
         <Notice msg={err} tone="danger" />

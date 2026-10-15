@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ClipboardCheck, ClockIcon, EyeOff, FileText, HardHat, Send, Wallet, AlertTriangle, Flag } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { AppShell, Field, Panel } from "@/components/app-shell";
@@ -14,9 +14,16 @@ import { createNcr, recordWorkHours, reportAnonymousHazard } from "@/lib/ehs/hse
 import { listAnnouncements, listHealth, reportIncident, submitHealth, type Announcement, type HealthRow, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { emailDeliveryNote } from "@/lib/ui/email-status";
 import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
 
-export const Route = createFileRoute("/dashboard")({ component: DashboardPage });
+export const Route = createFileRoute("/dashboard")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const id = Number(search.request);
+    return Number.isInteger(id) && id > 0 ? { request: id } : {};
+  },
+  component: DashboardPage,
+});
 
 function DashboardPage() {
   return <RoleGate path="/dashboard">{(profile) => <MyWork profile={profile} />}</RoleGate>;
@@ -25,6 +32,7 @@ function DashboardPage() {
 type Project = { id: number; name: string };
 
 function MyWork({ profile }: { profile: Profile }) {
+  const { request: requestId } = Route.useSearch();
   const brand = useOrgBrand();
   const canRequest = can(profile, "finance.request");
   const canRequestMoney = canRequest && profile.role !== "Finance";
@@ -39,6 +47,7 @@ function MyWork({ profile }: { profile: Profile }) {
   const [detail, setDetail] = useState<FinanceRequest | null>(null);
   const [dialog, setDialog] = useState<null | "request" | "hazard" | "hours" | "ncr" | "leave" | "report">(null);
   const [leaveKey, setLeaveKey] = useState(0);
+  const openedLinkedRequest = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     const [r, h, n] = await Promise.all([
@@ -52,6 +61,14 @@ function MyWork({ profile }: { profile: Profile }) {
     setDetail((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
   }, [canRequestMoney]);
   useLive(load, 20000);
+  useEffect(() => {
+    if (!requestId || requestId === openedLinkedRequest.current) return;
+    const request = requests.find((item) => item.id === requestId);
+    if (request) {
+      setDetail(request);
+      openedLinkedRequest.current = requestId;
+    }
+  }, [requestId, requests]);
   useLive(async () => {
     if (canRequest) setProjects(await listProjectsForRequests().catch(() => []));
   }, 120000);
@@ -213,7 +230,7 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
           setBusy(true);
           try {
             const r = await createFinanceRequest({ data: { projectId: projectId === "" ? null : Number(projectId), title, category, amount: value, priority, description: description || undefined } });
-            onDone(r.requiresManager ? `${r.requestNumber} sent to a manager first, then finance` : `${r.requestNumber} sent to finance`);
+            onDone((r.requiresManager ? `${r.requestNumber} sent to a manager first, then finance` : `${r.requestNumber} sent to finance`) + emailDeliveryNote(r.emailStatus));
           } catch (e2) { setErr(errorMessage(e2)); } finally { setBusy(false); }
         }}
       >

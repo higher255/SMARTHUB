@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ClipboardCheck, Gauge, Route as RouteIcon, Truck, Wallet } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { Field, Panel } from "@/components/app-shell";
@@ -7,13 +7,15 @@ import { EmptyState, Kpi, Modal, Notice, StatusBadge, btnGhost, btnPrimary, inpu
 import { InspectionForm, JourneyForm, RequestCenter } from "@/components/requests/request-center";
 import { ItemModal } from "@/components/requests/item-modal";
 import { AfterHoursVehiclePanel } from "@/components/requests/after-hours-vehicle";
+import { MyFinanceRequests } from "@/components/requests/my-finance-requests";
 import { useOrgBrand } from "@/components/workspace-bar";
 import { canAny } from "@/lib/ehs/access";
 import { listProjectsForRequests } from "@/lib/ehs/finance";
-import { listInbox, listMyJourneyPlans, updateJourneyStatus, type InboxItem, type JourneyPlan } from "@/lib/ehs/requests-hub";
+import { listActiveJourneyLocations, listInbox, listMyJourneyPlans, shareJourneyLocation, stopJourneyLocationSharing, updateJourneyStatus, type ActiveJourneyLocation, type InboxItem, type JourneyPlan } from "@/lib/ehs/requests-hub";
 import { listVehicles, submitDailyMileage, type Profile, type Vehicle } from "@/lib/ehs/server";
 import { formatDate, formatNumber } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
+import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
 
 export const Route = createFileRoute("/driver")({ component: DriverPage });
 
@@ -27,11 +29,15 @@ function Fleet({ profile }: { profile: Profile }) {
   const brand = useOrgBrand();
   const isDriver = profile.role === "Driver" || canAny(profile, ["fleet.driver_dashboard"]);
   const manager = canAny(profile, ["fleet.manage", "ehs.manage"]);
+  const mayRequestMoney = profile.role !== "Finance";
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [journeys, setJourneys] = useState<JourneyPlan[]>([]);
   const [inspections, setInspections] = useState<InboxItem[]>([]);
   const [waiting, setWaiting] = useState(0);
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
+  const [activeLocations, setActiveLocations] = useState<ActiveJourneyLocation[]>([]);
+  const [trackingJourneyId, setTrackingJourneyId] = useState<number | null>(null);
+  const lastLocationSentAt = useRef(0);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [item, setItem] = useState<InboxItem | null>(null);
   const [msg, setMsg] = useState("");
@@ -42,12 +48,28 @@ function Fleet({ profile }: { profile: Profile }) {
     const all = await listInbox({}).catch(() => []);
     setInspections(all.filter((i) => i.kind === "inspection" && i.requesterId === profile.userId));
     setWaiting(all.filter((i) => i.needsMyAction && ["journey", "inspection"].includes(i.kind)).length);
-  }, [profile.userId]);
+    if (manager) setActiveLocations(await listActiveJourneyLocations().catch(() => []));
+  }, [profile.userId, manager]);
   useLive(load, 20000);
   useLive(async () => setProjects(await listProjectsForRequests().catch(() => [])), 120000);
 
+  useEffect(() => {
+    if (trackingJourneyId === null || !navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition((position) => {
+      if (Date.now() - lastLocationSentAt.current < 15000) return;
+      lastLocationSentAt.current = Date.now();
+      void shareJourneyLocation({ data: { id: trackingJourneyId, latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy } })
+        .catch((error) => { setMsg(errorMessage(error, "Could not update your live location")); setTrackingJourneyId(null); });
+    }, (error) => {
+      setMsg(error.code === error.PERMISSION_DENIED ? "Location permission was denied. You can still use the journey plan without live sharing." : "Could not read device location.");
+      void stopJourneyLocationSharing({ data: { id: trackingJourneyId } }).catch(() => {});
+      setTrackingJourneyId(null);
+    }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+    return () => { navigator.geolocation.clearWatch(watchId); void stopJourneyLocationSharing({ data: { id: trackingJourneyId } }).catch(() => {}); };
+  }, [trackingJourneyId]);
+
   const changeJourney = async (id: number, status: "Started" | "Completed" | "Cancelled", done: string) => {
-    try { await updateJourneyStatus({ data: { id, status } }); setMsg(done); void load(); } catch (e) { setMsg(errorMessage(e)); }
+    try { await updateJourneyStatus({ data: { id, status } }); if (status === "Completed" || status === "Cancelled") setTrackingJourneyId(null); setMsg(done); void load(); } catch (e) { setMsg(errorMessage(e)); }
   };
   const finish = (m: string) => { setDialog(null); setMsg(m); void load(); };
 
@@ -64,8 +86,13 @@ function Fleet({ profile }: { profile: Profile }) {
       <div className="mb-6 flex flex-wrap gap-2">
         <button type="button" className={btnPrimary} onClick={() => setDialog("journey")}><RouteIcon className="size-4" /> New journey plan</button>
         <button type="button" className={btnGhost} onClick={() => setDialog("inspection")}><ClipboardCheck className="size-4" /> Vehicle inspection</button>
-        <button type="button" className={btnGhost} onClick={() => setDialog("center")}><Wallet className="size-4" /> Request fuel or repair</button>
+        {mayRequestMoney ? <button type="button" className={btnGhost} onClick={() => setDialog("center")}><Wallet className="size-4" /> Request fuel or repair</button> : null}
       </div>
+
+      {manager ? <Panel title="Live journey monitoring">
+        <p className="mb-3 text-xs text-fg-muted">Drivers must choose to share location from their active journey. SmartHub stores only the latest location, not a route history.</p>
+        {activeLocations.length === 0 ? <EmptyState title="No active journeys" /> : <ul className="divide-y divide-border">{activeLocations.map((x) => <li key={x.id} className="flex flex-wrap items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{x.driverName} · {x.vehicleLabel ?? "Vehicle"}</span><span className="block text-xs text-fg-muted">{x.jmpNumber} · {x.origin} → {x.destination}</span><span className="block text-xs text-fg-muted">{x.updatedAt ? `Updated ${new Date(x.updatedAt).toLocaleTimeString()}` : "Waiting for driver location sharing"}</span></span>{x.latitude !== null && x.longitude !== null ? <a className={btnGhost} href={`https://maps.google.com/?q=${x.latitude},${x.longitude}`} target="_blank" rel="noreferrer">Open map · ±{Math.round(x.accuracy ?? 0)}m</a> : <span className="text-xs text-fg-muted">Location not shared</span>}</li>)}</ul>}
+      </Panel> : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Panel title="Vehicles">
@@ -96,6 +123,8 @@ function Fleet({ profile }: { profile: Profile }) {
                   <div className="mt-2 flex gap-2">
                     {j.status === "Approved" ? <button type="button" className={btnPrimary} onClick={() => void changeJourney(j.id, "Started", "Journey started. Drive safely.")}>Start journey</button> : null}
                     {j.status === "Started" ? <button type="button" className={btnPrimary} onClick={() => void changeJourney(j.id, "Completed", "Arrived safely")}>I have arrived</button> : null}
+                    {j.status === "Started" && trackingJourneyId !== j.id ? <button type="button" className={btnGhost} onClick={() => { if (!navigator.geolocation) { setMsg("This device or browser does not provide GPS location."); return; } setTrackingJourneyId(j.id); setMsg("Live location sharing started for this active journey."); }}>Share live location</button> : null}
+                    {trackingJourneyId === j.id ? <button type="button" className={btnGhost} onClick={() => { setTrackingJourneyId(null); void stopJourneyLocationSharing({ data: { id: j.id } }).then(() => { setMsg("Live location sharing stopped and the last location removed."); void load(); }).catch((e) => setMsg(errorMessage(e))); }}>Stop sharing</button> : null}
                     {["Pending", "Approved"].includes(j.status) ? <button type="button" className={btnGhost} onClick={() => void changeJourney(j.id, "Cancelled", "Journey cancelled")}>Cancel</button> : null}
                   </div>
                 </li>
@@ -113,7 +142,10 @@ function Fleet({ profile }: { profile: Profile }) {
             </ul>
           )}
         </Panel>
+        {mayRequestMoney ? <MyFinanceRequests /> : null}
       </div>
+
+      <section className="mt-6"><h2 className="mb-3 text-lg font-semibold">Safety & wellbeing</h2><SafetyHubWorkspace profile={profile} compact /></section>
 
       {dialog === "journey" ? <JourneyForm onClose={() => setDialog(null)} onDone={finish} /> : null}
       {dialog === "inspection" ? <InspectionForm onClose={() => setDialog(null)} onDone={finish} /> : null}
