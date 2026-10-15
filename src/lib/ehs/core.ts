@@ -154,6 +154,21 @@ export type NotifyResult = {
   emailStatus: "sent" | "not_configured" | "no_recipient" | "failed";
 };
 
+/** Save an in-app notification only. Use for system workflow that must not email. */
+export async function notifyInApp(sql: Sql, n: NotifyInput): Promise<boolean> {
+  const ids = [...new Set(n.userIds)].filter(Boolean);
+  if (ids.length === 0) return true;
+  try {
+    await sql`insert into notifications (user_id, organization_id, title, message, type, link, entity_type, entity_id)
+      select u, ${n.organizationId}, ${n.title}, ${n.message}, ${n.type ?? "info"}, ${n.link ?? null}, ${n.entityType ?? null}, ${n.entityId == null ? null : String(n.entityId)}
+      from unnest(${ids}::text[]) as u`;
+    return true;
+  } catch (error) {
+    console.error("[notify] in-app delivery failed");
+    return false;
+  }
+}
+
 /** Deliver the same notification to the in-app bell and each intended user's email. */
 export async function notify(sql: Sql, n: NotifyInput): Promise<NotifyResult> {
   const ids = [...new Set(n.userIds)].filter(Boolean);

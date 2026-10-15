@@ -4,7 +4,7 @@ import { CalendarDays, Clock, LogIn, LogOut, MapPin } from "lucide-react";
 import { Field, Panel } from "@/components/app-shell";
 import { EmptyState, Modal, Notice, StatusBadge, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
 import {
-  cancelLeave, checkIn, checkOut, createSiteReport, decideLeave, getMyAttendance, listAttendance, listLeave, listSiteReports, requestLeave,
+  askAttendanceReason, cancelLeave, checkIn, checkOut, createSiteReport, decideLeave, getMyAttendance, listAttendance, listLeave, listOnDutyStaff, listSiteReports, requestLeave, reviewAutoCheckoutReason, submitAutoCheckoutReason,
   type AttendanceRow, type LeaveRow, type SiteReport,
 } from "@/lib/ehs/daily";
 import { listHealth, listTodayHealthStatus, type HealthRow, type TodayHealthStatus } from "@/lib/ehs/server";
@@ -12,7 +12,7 @@ import type { Profile } from "@/lib/ehs/server";
 import { formatDate, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 
-const time = (v: string | null) => (v ? new Date(v).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "-");
+const time = (v: string | null) => (v ? new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" }).format(new Date(v)) : "-");
 
 /** Compact daily work sequence shown on every company workspace. */
 export function DailyFlowBanner({ profile }: { profile: Profile }) {
@@ -25,7 +25,7 @@ export function DailyFlowBanner({ profile }: { profile: Profile }) {
   }, []);
   useLive(load, 60000);
   const checkedIn = Boolean(attendance?.today && !attendance.today.checkOut);
-  const today = todayIso();
+  const today = darTodayIso();
   const declared = health.some((row) => row.userId === profile.userId && row.createdAt.slice(0, 10) === today);
   if (profile.role === "Client") return null;
   return (
@@ -75,17 +75,51 @@ export function AttendanceCard({ projects, onActionComplete }: { projects: { id:
   const [location, setLocation] = useState("");
   const [workplace, setWorkplace] = useState<"office" | "other" | "">("");
   const [projectId, setProjectId] = useState<number | "">("");
+  const [startAnother, setStartAnother] = useState(false);
   const [msg, setMsg] = useState("");
+  const [now, setNow] = useState(() => new Date());
+  const [reason, setReason] = useState("");
+  useLive(() => { setNow(new Date()); }, 30000);
   const load = useCallback(async () => setMe(await getMyAttendance().catch(() => null)), []);
   useLive(load, 60000);
-  const today = me?.today;
-  const run = async (fn: () => Promise<unknown>, done: string) => { try { await fn(); setMsg(done); await load(); onActionComplete?.(); } catch (e) { setMsg(errorMessage(e)); } };
+  const sessions = me?.todaySessions ?? [];
+  const activeSession = sessions.find((session) => !session.checkOut) ?? null;
+  const showCheckInForm = sessions.length === 0 || (startAnother && !activeSession);
+  const previousSession = [...sessions].reverse().find((session) => session.checkOut);
+  const lastEarlyCheckout = Boolean(previousSession?.checkOut && isBeforeDarTime(previousSession.checkOut, 17, 0));
+  const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  const checkInOpen = localTime >= "07:00";
+  const afterHours = localTime >= "18:00";
+  const run = async (fn: () => Promise<unknown>, done: string, collapse = true) => { try { await fn(); setMsg(done); setStartAnother(false); setReason(""); await load(); if (collapse) onActionComplete?.(); } catch (e) { setMsg(errorMessage(e)); } };
   return (
     <Panel title="Attendance">
       <Notice msg={msg} onClose={() => setMsg("")} />
-      {!today ? (
+      {sessions.length > 1 ? <p className="text-xs font-medium text-accent">Multiple sessions recorded today ({sessions.length}). Each check-in and check-out is saved separately.</p> : null}
+      {sessions.length ? (
+        <ul className="divide-y divide-border rounded-lg border border-border px-3">
+          {sessions.map((session, index) => (
+            <li key={session.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 text-sm">
+              <span className="min-w-20 font-medium">{sessions.length > 1 ? `Session ${index + 1}` : "Today"}</span>
+              <span>In <strong>{time(session.checkIn)}</strong></span>
+              <span>{session.checkOut ? <>Out <strong>{time(session.checkOut)}</strong></> : <span className="text-ok">On duty</span>}{session.afterHours ? <span className="ml-2 rounded-full bg-warn/10 px-2 py-0.5 text-xs text-warn">After hours</span> : null}</span>
+              <span className="text-fg-muted">{session.checkOut || session.workDate === darTodayIso() ? duration(session.checkIn, session.checkOut) : "No checkout recorded"}</span>
+              {session.autoCheckout ? <AutoCheckoutReview session={session} onUpdated={load} /> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {activeSession ? (
         <div className="space-y-3">
-          <p className="text-sm text-fg-muted">You have not checked in today.</p>
+          <p className="text-sm">Checked in at <span className="font-semibold">{time(activeSession.checkIn)}</span>{activeSession.location ? <span className="text-fg-muted"> · {activeSession.location}</span> : null}</p>
+          <p className="text-xs text-fg-muted">Working for {duration(activeSession.checkIn, null)}. Your time is recorded automatically and cannot be edited.</p>
+          <button type="button" className={`${btnGhost} w-full`} onClick={() => void run(() => checkOut(), "Checked out. Your hours have been recorded. You can check in again if work continues.", false)}><LogOut className="size-4" /> Check out</button>
+        </div>
+      ) : null}
+      {showCheckInForm ? (
+        <div className="space-y-3">
+          {sessions.length === 0 ? <p className="text-sm text-fg-muted">You have not checked in today.</p> : <p className="text-sm text-fg-muted">Start another attendance session. It will be marked as multiple for today{afterHours ? " and After hours" : ""}.</p>}
+          {!checkInOpen ? <p className="rounded-md bg-bg-subtle px-3 py-2 text-sm text-fg-muted">Check-in opens at 07:00 East Africa Time.</p> : null}
+          {lastEarlyCheckout ? <Field label="Reason for returning after an early check-out (required)"><textarea required maxLength={500} rows={2} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Briefly explain why you are returning" className={inputCls} /></Field> : null}
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Are you working from the office today?</legend>
             <div className="flex gap-2">
@@ -95,14 +129,91 @@ export function AttendanceCard({ projects, onActionComplete }: { projects: { id:
           </fieldset>
           {workplace === "other" ? <Field label="Where are you working today?"><input required value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Site, client office or remote location" className={inputCls} /></Field> : null}
           {projects.length ? <Field label="Project (optional)"><select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls}><option value="">None</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field> : null}
-          <button type="button" disabled={!workplace || (workplace === "other" && !location.trim())} className={`${btnPrimary} w-full`} onClick={() => void run(() => checkIn({ data: { location: location.trim(), projectId: projectId ? Number(projectId) : undefined } }), "Checked in")}><LogIn className="size-4" /> Check in</button>
+          <button type="button" disabled={!checkInOpen || !workplace || (workplace === "other" && !location.trim()) || (lastEarlyCheckout && !reason.trim())} className={`${btnPrimary} w-full`} onClick={() => void run(() => checkIn({ data: { location: location.trim(), projectId: projectId ? Number(projectId) : undefined, reason: reason.trim() || undefined } }), afterHours ? "Checked in · After hours" : "Checked in")}><LogIn className="size-4" /> {afterHours ? "Check in · After hours" : "Check in"}</button>
         </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm">Checked in at <span className="font-semibold">{time(today.checkIn)}</span>{today.location ? <span className="text-fg-muted"> · {today.location}</span> : null}</p>
-          {today.checkOut ? <p className="text-sm text-fg-muted">Checked out at {time(today.checkOut)}. Good work today.</p> : (
-            <button type="button" className={`${btnGhost} w-full`} onClick={() => void run(() => checkOut(), "Checked out")}><LogOut className="size-4" /> Check out</button>
-          )}
+      ) : null}
+      {sessions.length > 0 && !activeSession && !startAnother ? <button type="button" className={`${btnGhost} w-full`} onClick={() => setStartAnother(true)}><LogIn className="size-4" /> Check in again</button> : null}
+      {me?.recent.some((row) => row.workDate !== darTodayIso() && !row.checkOut) ? (
+        <div className="rounded-lg border border-warn/30 bg-warn/5 p-3 text-xs text-warn">
+          {me.recent.filter((row) => row.workDate !== darTodayIso() && !row.checkOut).map((row) => <p key={row.id}>No checkout was recorded for {formatDate(row.workDate)} (checked in at {time(row.checkIn)}). This record stays in your attendance history; contact HR if it needs review.</p>)}
+        </div>
+      ) : null}
+      {me?.recent.length ? <details className="rounded-lg border border-border px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium">Recent attendance history</summary>
+        <ul className="mt-2 divide-y divide-border">
+          {me.recent.slice(0, 12).map((row) => <li key={row.id} className="flex flex-wrap gap-x-3 gap-y-1 py-2 text-xs">
+            <span className="min-w-24 font-medium">{formatDate(row.workDate)}{row.sessionCount > 1 ? " · Multiple" : ""}</span>
+            <span>In {time(row.checkIn)}</span><span>Out {row.checkOut ? time(row.checkOut) : "Not recorded"}</span>
+            <span className="text-fg-muted">{row.checkOut ? duration(row.checkIn, row.checkOut) : row.workDate === darTodayIso() ? duration(row.checkIn, null) : "Hours unavailable"}</span>
+            {row.autoCheckout ? <AutoCheckoutReview session={row} onUpdated={load} /> : null}
+          </li>)}
+        </ul>
+      </details> : null}
+    </Panel>
+  );
+}
+
+function duration(start: string, end: string | null) {
+  const minutes = Math.max(0, Math.floor(((end ? new Date(end).getTime() : Date.now()) - new Date(start).getTime()) / 60000));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${remainder}m` : `${remainder}m`;
+}
+
+function AutoCheckoutReview({ session, onUpdated }: { session: AttendanceRow; onUpdated: () => Promise<void> }) {
+  const [reason, setReason] = useState(session.checkoutReason ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const needsReason = session.reviewStatus === "Awaiting reason" || session.reviewStatus === "Needs details";
+  return <div className="w-full rounded-md border border-warn/30 bg-warn/5 p-3 text-xs">
+    <p className="font-semibold text-warn">Automatic check-out at {time(session.checkOut)} · HR review: {session.reviewStatus ?? "Awaiting reason"}</p>
+    {session.reviewNote ? <p className="mt-1 text-fg-muted">HR: {session.reviewNote}</p> : null}
+    {session.checkoutReason && !needsReason ? <p className="mt-1 text-fg-muted">Your reason: {session.checkoutReason}</p> : null}
+    {needsReason ? <form className="mt-2 space-y-2" onSubmit={async (event) => {
+      event.preventDefault(); setBusy(true); setMessage("");
+      try { const result = await submitAutoCheckoutReason({ data: { attendanceId: session.id, reason: reason.trim() } }); setMessage(result.notified ? "Reason sent to HR for review." : "Reason saved, but HR could not be notified."); await onUpdated(); }
+      catch (error) { setMessage(errorMessage(error)); } finally { setBusy(false); }
+    }}>
+      <label className="block font-medium text-fg">{session.reviewStatus === "Needs details" ? "Add the requested details" : "Reason for missing check-out"}
+        <textarea required maxLength={1000} rows={2} value={reason} onChange={(event) => setReason(event.target.value)} className={`${inputCls} mt-1`} placeholder="Explain briefly what happened" />
+      </label>
+      <button type="submit" disabled={busy || !reason.trim()} className={`${btnPrimary} min-h-9`}>{busy ? "Sending…" : "Send reason to HR"}</button>
+      {message ? <p role="status" className="text-fg-muted">{message}</p> : null}
+    </form> : null}
+    {session.reviewStatus === "Pending" ? <p className="mt-1 text-fg-muted">Your reason was sent. HR will approve it or request more details.</p> : null}
+    {session.reviewStatus === "Approved" ? <p className="mt-1 text-ok">HR approved your reason.</p> : null}
+  </div>;
+}
+
+function isBeforeDarTime(value: string, hour: number, minute: number) {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value));
+  const localHour = Number(parts.find((part) => part.type === "hour")?.value ?? 0);
+  const localMinute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  return localHour * 60 + localMinute < hour * 60 + minute;
+}
+
+const darTodayIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+/** Current HR view: only employees with an open attendance session are listed. */
+export function MyStaffsBoard() {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof listOnDutyStaff>>>([]);
+  const load = useCallback(async () => setRows(await listOnDutyStaff().catch(() => [])), []);
+  useLive(load, 30000);
+  return (
+    <Panel title="My Staffs · on duty now">
+      <p className="mb-3 text-xs text-fg-muted">Live list of staff currently checked in, with today’s latest fitness declaration.</p>
+      {rows.length === 0 ? <EmptyState title="No staff currently checked in" hint="People appear here after they check in. Checked-out staff remain in Attendance history." /> : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[620px] text-left text-sm">
+            <thead className="border-b border-border bg-bg-subtle/60"><tr>{["Staff member", "Checked in", "Health today", "Declared", "Workplace"].map((title) => <th key={title} className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">{title}</th>)}</tr></thead>
+            <tbody className="divide-y divide-border">{rows.map((row) => <tr key={row.userId}>
+              <td className="px-3 py-2.5"><span className="font-medium">{row.name}</span><span className="block text-xs text-fg-muted">{row.role} · {row.department}</span>{row.sessionCount > 1 ? <span className="mt-1 inline-block rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">Multiple sessions</span> : null}</td>
+              <td className="px-3 py-2.5">{time(row.checkIn)}</td>
+              <td className="px-3 py-2.5"><StatusBadge status={row.fitness ?? "Not declared"} /></td>
+              <td className="px-3 py-2.5 text-fg-muted">{row.declaredAt ? time(row.declaredAt) : "—"}</td>
+              <td className="px-3 py-2.5 text-fg-muted">{[row.projectName, row.location].filter(Boolean).join(" · ") || "—"}</td>
+            </tr>)}</tbody>
+          </table>
         </div>
       )}
     </Panel>
@@ -116,11 +227,21 @@ export function AttendanceBoard() {
   useLive(load, 30000);
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-3"><Field label="Date"><input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field><p className="pb-2 text-sm text-fg-muted">{rows.length} checked in · {rows.filter((r) => !r.checkOut).length} still on duty</p></div>
+      <div className="flex items-end gap-3"><Field label="Date"><input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field><p className="pb-2 text-sm text-fg-muted">{rows.length} sessions · {rows.filter((r) => !r.checkOut).length} still on duty</p></div>
       {rows.length === 0 ? <EmptyState title="Nobody checked in" hint="People check in from My work when they start." /> : (
         <div className="overflow-x-auto rounded-xl border border-border bg-bg-elevated">
-          <table className="w-full min-w-[520px]"><thead className="border-b border-border"><tr>{["Name", "In", "Out", "Where"].map((h) => <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-border">{rows.map((r) => (<tr key={r.id}><td className="px-3 py-2.5 text-sm font-medium">{r.name ?? "Unknown"}</td><td className="px-3 py-2.5 text-sm">{time(r.checkIn)}</td><td className="px-3 py-2.5 text-sm">{time(r.checkOut)}</td><td className="px-3 py-2.5 text-sm text-fg-muted">{[r.projectName, r.location].filter(Boolean).join(" · ") || "-"}</td></tr>))}</tbody></table>
+          <table className="w-full min-w-[680px]"><thead className="border-b border-border"><tr>{["Name", "In", "Out", "Hours", "Status", "Where"].map((h) => <th key={h} className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">{h}</th>)}</tr></thead>
+            <tbody className="divide-y divide-border">{rows.map((r) => {
+              const early = Boolean(r.checkOut && isBeforeDarTime(r.checkOut, 17, 0));
+              return <tr key={r.id} className={early ? "bg-danger/5" : undefined}>
+                <td className="px-3 py-2.5 text-sm font-medium">{r.name ?? "Unknown"}{r.sessionCount > 1 ? <span className="block text-[10px] font-semibold text-accent">Multiple sessions</span> : null}{r.afterHours ? <span className="block text-[10px] font-semibold text-warn">After hours</span> : null}{r.autoCheckout ? <span className="block text-[10px] font-semibold text-warn">Automatic checkout</span> : null}{r.note ? <span className="block max-w-52 text-xs font-normal text-fg-muted">Reason: {r.note}</span> : null}{r.checkoutReason ? <span className="block max-w-52 text-xs font-normal text-fg-muted">Auto-checkout reason: {r.checkoutReason}</span> : null}{r.reviewNote ? <span className="block max-w-52 text-xs font-normal text-danger">HR: {r.reviewNote}</span> : null}</td>
+                <td className="px-3 py-2.5 text-sm">{time(r.checkIn)}</td>
+                <td className="px-3 py-2.5 text-sm">{time(r.checkOut)}{early ? <span className="block text-xs font-semibold text-danger">Early checkout · follow-up</span> : null}{r.autoCheckout ? <span className="block text-xs font-semibold text-warn">Auto at 20:00 EAT</span> : null}</td>
+                <td className="px-3 py-2.5 text-sm">{r.checkOut ? duration(r.checkIn, r.checkOut) : "—"}</td>
+                <td className="px-3 py-2.5 text-sm">{r.checkOut ? "Checked out" : "On duty"}{r.autoCheckout ? <span className="block text-xs text-fg-muted">Review: {r.reviewStatus ?? "Awaiting reason"}</span> : null}{r.autoCheckout && r.reviewStatus === "Pending" ? <div className="mt-1 flex flex-col items-start gap-1"><button type="button" className="text-xs font-semibold text-ok hover:underline" onClick={async () => { try { await reviewAutoCheckoutReason({ data: { attendanceId: r.id, decision: "Approved" } }); await load(); } catch (error) { window.alert(errorMessage(error)); } }}>Approve reason</button><button type="button" className="text-xs font-semibold text-accent hover:underline" onClick={async () => { const note = window.prompt("What additional details should the employee provide?"); if (!note?.trim()) return; try { await reviewAutoCheckoutReason({ data: { attendanceId: r.id, decision: "Needs details", note } }); await load(); } catch (error) { window.alert(errorMessage(error)); } }}>Ask for more details</button></div> : null}{early && !r.autoCheckout ? <button type="button" className="mt-1 block text-xs font-semibold text-accent hover:underline" onClick={async () => { try { const result = await askAttendanceReason({ data: r.id }); window.alert(result.emailStatus === "sent" ? "Reason request sent by dashboard and email." : result.emailStatus === "not_configured" ? "Dashboard notification sent; email is not configured." : "Reason request sent in the dashboard."); } catch (error) { window.alert(errorMessage(error)); } }}>Ask reason</button> : null}</td>
+                <td className="px-3 py-2.5 text-sm text-fg-muted">{[r.projectName, r.location].filter(Boolean).join(" · ") || "-"}</td>
+              </tr>;
+            })}</tbody></table>
         </div>
       )}
     </div>

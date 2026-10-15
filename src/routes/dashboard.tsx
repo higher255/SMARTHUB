@@ -71,7 +71,7 @@ function MyWork({ profile }: { profile: Profile }) {
   const [vehicleDone, setVehicleDone] = useState(false);
   const [safetyDone, setSafetyDone] = useState(false);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
-  const [expandedFeatures, setExpandedFeatures] = useState<Record<WorkFeatureKey, boolean>>({ vehicle: true, attendance: true, health: true, leave: true, notices: true, safety: true });
+  const [expandedFeatures, setExpandedFeatures] = useState<Record<WorkFeatureKey, boolean>>({ vehicle: false, attendance: false, health: false, leave: false, notices: false, safety: false });
   const [msg, setMsg] = useState("");
   const [detail, setDetail] = useState<FinanceRequest | null>(null);
   const [dialog, setDialog] = useState<null | "request" | "hazard" | "hours" | "ncr" | "leave" | "report">(null);
@@ -217,6 +217,7 @@ function MyWork({ profile }: { profile: Profile }) {
 
         <div className={`space-y-5 ${canRequestMoney ? "lg:col-span-2" : "lg:col-span-5"}`}>
           <WorkFeatureRail features={workFeatures} expanded={expandedFeatures} onToggle={toggleFeature} />
+          {!Object.values(expandedFeatures).some(Boolean) ? <p className="text-sm text-fg-muted">Select a card or click to view its details.</p> : null}
           {canRequest && expandedFeatures.vehicle ? <AfterHoursVehiclePanel profile={profile} mode="mine" onCompleted={() => { setVehicleDone(true); collapseFeature("vehicle"); }} /> : null}
           {expandedFeatures.attendance ? <AttendanceCard projects={projects} onActionComplete={() => collapseFeature("attendance")} /> : null}
           {expandedFeatures.health ? <HealthCard current={todayHealth} onSaved={(m) => { setMsg(m); if (m === "Declaration saved") collapseFeature("health"); void load(); }} /> : null}

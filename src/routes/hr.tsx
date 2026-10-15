@@ -5,7 +5,7 @@ import { AnnouncementComposer } from "@/components/announcement-composer";
 import { RoleGate } from "@/components/role-gate";
 import { useLive } from "@/lib/ui/use-live";
 import { TabBar } from "@/components/ui-kit";
-import { AttendanceBoard, HealthStatusBoard, LeaveApprovals } from "@/components/daily/daily";
+import { AttendanceBoard, HealthStatusBoard, LeaveApprovals, MyStaffsBoard } from "@/components/daily/daily";
 import { can } from "@/lib/ehs/access";
 import { deleteAnnouncement, listAnnouncements, listCertificates, listAllUsersForManager, type Announcement, type Certificate } from "@/lib/ehs/server";
 import type { EhsRole } from "@/lib/ehs/roles";
@@ -39,6 +39,7 @@ function HrDashboard({ name, role, userId, canLeave, canAttendance, canHr }: { n
     {tab === "attendance" ? <AttendanceBoard /> : null}
     {tab === "health" && canViewHealth ? <HealthStatusBoard mode="history" /> : null}
     {tab === "people" ? <>
+    <div className="mb-6"><MyStaffsBoard /></div>
     <div className="mb-6 grid gap-4 sm:grid-cols-3"><StatCard label="Employees" value={users.length} hint="Organization team" /><StatCard label="Certificates" value={certificates.length} hint="Readiness records" /><StatCard label="Expiry alerts" value={expiring} hint="Due within 7 days" /></div>
     <div className="grid gap-6 lg:grid-cols-2">
       <AnnouncementComposer onPublished={refresh} />
