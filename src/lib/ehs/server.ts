@@ -967,7 +967,7 @@ export const submitHealth = createServerFn({ method: "POST" })
         title: `Health status: ${data.fitness}`,
         message: `${getUserFullName(profile)} reported ${data.fitness.toLowerCase()} for duty today. Please follow up with the employee.`,
         type: "health",
-        link: can(profile, "hr.manage") ? "/hr" : "/ehs",
+        link: "/dashboard",
         entityType: "health_declaration",
         entityId: rows[0]?.id,
       });
