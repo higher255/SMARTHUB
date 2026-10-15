@@ -74,6 +74,9 @@ export type InvoiceLine = { id: number; position: number; description: string; q
 export type PaymentRow = { id: number; kind: string; receiptNo: string | null; amount: number; payDate: string; method: string; reference: string | null; partyName: string | null };
 export type InvoiceDetail = FinanceInvoice & { lines: InvoiceLine[]; payments: PaymentRow[]; customerTin: string | null; customerAddress: string | null };
 export type PurchaseOrder = { id: number; poNumber: string; supplierName: string; description: string; amount: number; currency: string; status: string; issueDate: string; projectId: number | null };
+export type FinanceBill = { id: number; billNumber: string; supplierInvoiceNumber: string | null; supplierName: string; supplierId: number | null; description: string; currency: string; status: string; issueDate: string; dueDate: string | null; projectId: number | null; subtotal: number; vatRate: number; vatAmount: number; total: number; amountPaid: number; notes: string | null };
+export type BillLine = { id: number; position: number; description: string; quantity: number; unitPrice: number; accountCode: string; projectId: number | null };
+export type BankReconciliationLine = { id: number; date: string; entryNo: string; memo: string; description: string | null; debit: number; credit: number; amount: number; selected: boolean };
 export type Party = { id: number; kind: "customer" | "supplier"; name: string; tin: string | null; vrn: string | null; email: string | null; phone: string | null; address: string | null };
 export type Account = { id: number; code: string; name: string; type: "Asset" | "Liability" | "Equity" | "Income" | "Expense"; isSystem: boolean; active: boolean };
 export type TrialBalanceRow = { code: string; accountName: string; type: string; debit: number; credit: number; balanceDr: number; balanceCr: number };
@@ -212,7 +215,10 @@ export const listFinanceRequests = createServerFn({ method: "GET" })
     const where: string[] = ["organization_id = $1"];
     const params: unknown[] = [profile.organizationId];
     const add = (cond: string, value: unknown) => { params.push(value); where.push(cond.replace("?", `$${params.length}`)); };
-    if (!can(profile, "finance.view") || data?.mine) add("user_id = ?", context.userId);
+    const canReviewCompanyRequests = ["finance.approve", "finance.endorse", "finance.pay"].some((permission) =>
+      can(profile, permission as "finance.approve" | "finance.endorse" | "finance.pay"),
+    );
+    if ((!can(profile, "finance.view") && !canReviewCompanyRequests) || data?.mine) add("user_id = ?", context.userId);
     if (data?.projectId) add("project_id = ?", data.projectId);
     if (data?.status) add("status = ?", data.status);
     if (data?.fromDate) add("created_at >= ?::date", data.fromDate);
@@ -448,7 +454,7 @@ export const createParty = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requirePermission(context.userId, "accounts.invoices");
+    const profile = await requirePermission(context.userId, data.kind === "supplier" ? "accounts.payables" : "accounts.invoices");
     const rows = await sql<{ id: number }>`insert into parties (organization_id, kind, name, tin, vrn, email, phone, address)
       values (${profile.organizationId}, ${data.kind}, ${data.name}, ${data.tin ?? null}, ${data.vrn ?? null}, ${data.email || null}, ${data.phone ?? null}, ${data.address ?? null})
       returning id`;
@@ -517,7 +523,7 @@ export const createInvoice = createServerFn({ method: "POST" })
       vatRate: z.number().min(0).max(30).optional(),
       notes: z.string().max(1000).optional(),
       lines: z.array(z.object({ description: z.string().min(1).max(300), quantity: z.number().positive(), unitPrice: z.number().min(0) })).min(1).max(60),
-    }).parse(input),
+    }).refine((v) => !v.dueDate || !v.issueDate || v.dueDate >= v.issueDate, { path: ["dueDate"], message: "Due date must be on or after issue date" }).parse(input),
   )
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
@@ -611,6 +617,108 @@ export const deleteDraftInvoice = createServerFn({ method: "POST" })
     if (!gone[0]) throw new Error("Only draft invoices can be deleted. Void an issued invoice instead.");
     return { success: true };
   });
+
+// ============================================
+// ACCOUNTS PAYABLE (supplier bills and payments)
+// ============================================
+
+type BillRow = {
+  id: number; bill_number: string; supplier_invoice_number: string | null; supplier_name: string; supplier_id: number | null;
+  description: string; currency: string; status: string; issue_date: string; due_date: string | null; project_id: number | null;
+  subtotal: string | number; vat_rate: string | number; vat_amount: string | number; total: string | number;
+  amount_paid: string | number; notes: string | null;
+};
+const BILL_COLS = `id,bill_number,supplier_invoice_number,supplier_name,supplier_id,description,currency,status,issue_date::text as issue_date,due_date::text as due_date,project_id,subtotal,vat_rate,vat_amount,total,amount_paid,notes`;
+const mapBill = (r: BillRow): FinanceBill => ({
+  id:r.id,billNumber:r.bill_number,supplierInvoiceNumber:r.supplier_invoice_number,supplierName:r.supplier_name,supplierId:r.supplier_id,
+  description:r.description,currency:r.currency,status:r.status,issueDate:r.issue_date,dueDate:r.due_date,projectId:r.project_id,
+  subtotal:num(r.subtotal),vatRate:num(r.vat_rate),vatAmount:num(r.vat_amount),total:num(r.total),amountPaid:num(r.amount_paid),notes:r.notes,
+});
+
+export const listBills = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const profile = await requirePermission(context.userId, "accounts.view");
+    const rows = await sql.query<BillRow>(`select ${BILL_COLS} from finance_bills where organization_id=$1 order by issue_date desc,id desc limit 500`, [profile.organizationId]);
+    return rows.map(mapBill);
+  });
+
+export const createBill = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({
+    supplierId:z.number().int().optional(),supplierName:z.string().trim().min(1).max(160),supplierInvoiceNumber:z.string().trim().max(100).optional(),
+    description:z.string().trim().min(1).max(300),projectId:z.number().int().optional(),issueDate:dateStr.optional(),dueDate:dateStr.optional(),
+    vatRate:z.number().min(0).max(30).optional(),notes:z.string().max(1000).optional(),
+    lines:z.array(z.object({description:z.string().trim().min(1).max(300),quantity:z.number().positive().max(1_000_000),unitPrice:z.number().min(0).max(1_000_000_000),accountCode:z.string().regex(/^[0-9]{3,6}$/),projectId:z.number().int().optional()})).min(1).max(60),
+  }).refine(v=>!v.dueDate||!v.issueDate||v.dueDate>=v.issueDate,{path:["dueDate"],message:"Due date must be on or after bill date"}).parse(input))
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql=await getSql(); const profile=await requirePermission(context.userId,"accounts.payables","You cannot create supplier bills");
+    const org=await sql<{currency:string;vat_rate:string|number}>`select currency,vat_rate from organizations where id=${profile.organizationId}`;
+    if(data.supplierId){const s=await sql`select 1 from parties where id=${data.supplierId} and organization_id=${profile.organizationId} and kind='supplier'`;if(!s[0])throw new Error("Supplier not found in your company");}
+    if(data.projectId){const p=await sql`select 1 from projects where id=${data.projectId} and organization_id=${profile.organizationId}`;if(!p[0])throw new Error("Choose a project from your company");}
+    for(const line of data.lines){const a=await sql`select 1 from chart_of_accounts where organization_id=${profile.organizationId} and code=${line.accountCode} and active and type='Expense'`;if(!a[0])throw new Error(`Choose an active expense account for ${line.description}`);if(line.projectId){const p=await sql`select 1 from projects where id=${line.projectId} and organization_id=${profile.organizationId}`;if(!p[0])throw new Error("Choose a project from your company");}}
+    const rate=data.vatRate??num(org[0]?.vat_rate); const subtotal=data.lines.reduce((s,l)=>s+Math.round(l.quantity*l.unitPrice*100)/100,0); const vat=Math.round(subtotal*rate)/100;
+    const result=await sql<{id:number;bill_number:string}>`
+      with bill as (
+        insert into finance_bills(organization_id,supplier_id,supplier_name,supplier_invoice_number,bill_number,description,currency,status,issue_date,due_date,project_id,subtotal,vat_rate,vat_amount,total,notes,created_by)
+        values(${profile.organizationId},${data.supplierId??null},${data.supplierName},${data.supplierInvoiceNumber||null},acct_next_no(${profile.organizationId},'BILL','BILL'),${data.description},${org[0]?.currency??'TZS'},'Draft',coalesce(${data.issueDate??null}::date,current_date),${data.dueDate??null}::date,${data.projectId??null},${subtotal},${rate},${vat},${subtotal+vat},${data.notes??null},${context.userId}) returning id,bill_number
+      ), lines as (
+        insert into finance_bill_lines(bill_id,position,description,quantity,unit_price,account_code,project_id)
+        select bill.id,x.ord,x.e->>'description',(x.e->>'quantity')::numeric,(x.e->>'unitPrice')::numeric,x.e->>'accountCode',nullif(x.e->>'projectId','')::integer
+        from bill,jsonb_array_elements(${JSON.stringify(data.lines)}::jsonb) with ordinality x(e,ord) returning bill_id
+      ) select id,bill_number from bill`;
+    await audit(sql,profile.organizationId,context.userId,"create","supplier_bill",result[0]!.id,{subtotal,vat,rate});
+    return {id:result[0]!.id,billNumber:result[0]!.bill_number};
+  });
+
+export const postBill = createServerFn({method:"POST"})
+  .validator((id:number)=>z.number().int().positive().parse(id)).middleware([authMiddleware])
+  .handler(async({context,data:id})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.payables");try{await sql`select fin_bill_post(${id},${profile.organizationId},${context.userId})`;}catch(e){throw friendly(e);}await audit(sql,profile.organizationId,context.userId,"post","supplier_bill",id);return{success:true};});
+
+export const payBill = createServerFn({method:"POST"})
+  .validator((input:unknown)=>z.object({id:z.number().int().positive(),amount:z.number().positive(),payDate:dateStr.optional(),method:z.enum(PAY_METHODS).default("Bank"),reference:z.string().trim().max(120).optional()}).parse(input))
+  .middleware([authMiddleware]).handler(async({context,data})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.payables");try{await sql`select fin_bill_pay(${data.id},${profile.organizationId},${context.userId},${data.amount},${data.payDate??null}::date,${data.method},${data.reference??null})`;}catch(e){throw friendly(e);}await audit(sql,profile.organizationId,context.userId,"payment","supplier_bill",data.id,{amount:data.amount,method:data.method});return{success:true};});
+
+export const voidBill = createServerFn({method:"POST"})
+  .validator((input:unknown)=>z.object({id:z.number().int().positive(),reason:z.string().trim().min(1).max(300)}).parse(input))
+  .middleware([authMiddleware]).handler(async({context,data})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.payables");try{await sql`select fin_bill_void(${data.id},${profile.organizationId},${context.userId},${data.reason})`;}catch(e){throw friendly(e);}await audit(sql,profile.organizationId,context.userId,"void","supplier_bill",data.id,{reason:data.reason});return{success:true};});
+
+export const getVatSummary = createServerFn({method:"GET"})
+  .validator((input:unknown)=>z.object({from:dateStr,to:dateStr}).refine(x=>x.to>=x.from,"End date must be on or after start date").parse(input))
+  .middleware([authMiddleware]).handler(async({context,data})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.reports");
+    const rows=await sql<{direction:"Output"|"Input";reference:string;party:string;date:string;subtotal:string|number;vat_rate:string|number;vat_amount:string|number;total:string|number}>`
+      select 'Output'::text direction,invoice_number reference,customer_name party,issue_date::text date,subtotal,vat_rate,vat_amount,total
+        from finance_invoices where organization_id=${profile.organizationId} and status in ('Issued','Partially Paid','Paid') and issue_date between ${data.from}::date and ${data.to}::date
+      union all
+      select 'Input'::text,bill_number,supplier_name,issue_date::text,subtotal,vat_rate,vat_amount,total
+        from finance_bills where organization_id=${profile.organizationId} and status in ('Open','Partially Paid','Paid') and issue_date between ${data.from}::date and ${data.to}::date
+      order by date,reference`;
+    const items=rows.map(r=>({direction:r.direction,reference:r.reference,party:r.party,date:r.date,subtotal:num(r.subtotal),vatRate:num(r.vat_rate),vatAmount:num(r.vat_amount),total:num(r.total)}));
+    const output=items.filter(i=>i.direction==="Output").reduce((s,i)=>s+i.vatAmount,0),input=items.filter(i=>i.direction==="Input").reduce((s,i)=>s+i.vatAmount,0);
+    return{from:data.from,to:data.to,outputVat:output,inputVat:input,netVat:output-input,items};});
+
+export const listReconciliationLines = createServerFn({method:"GET"})
+  .validator((input:unknown)=>z.object({code:z.string().regex(/^[0-9]{3,6}$/),from:dateStr,to:dateStr,reconciliationId:z.number().int().positive().optional()}).refine(x=>x.to>=x.from,"End date must be on or after start date").parse(input))
+  .middleware([authMiddleware]).handler(async({context,data})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.view");const rows=await sql<{id:number;entry_date:string;entry_no:string;memo:string;description:string|null;debit:string|number;credit:string|number;selected:boolean}>`
+    select l.id,e.entry_date::text,e.entry_no,e.memo,l.description,l.debit,l.credit,
+      exists(select 1 from bank_reconciliation_items ri where ri.journal_line_id=l.id and ri.reconciliation_id=${data.reconciliationId??null}) selected
+    from journal_lines l join journal_entries e on e.id=l.entry_id join chart_of_accounts a on a.id=l.account_id
+    where e.organization_id=${profile.organizationId} and a.organization_id=${profile.organizationId} and a.code=${data.code}
+      and e.entry_date between ${data.from}::date and ${data.to}::date
+      and not exists(select 1 from bank_reconciliation_items ri join bank_reconciliations br on br.id=ri.reconciliation_id where ri.journal_line_id=l.id and br.status='Completed')
+    order by e.entry_date,e.id,l.id`;
+    return rows.map(r=>({id:r.id,date:r.entry_date,entryNo:r.entry_no,memo:r.memo,description:r.description,debit:num(r.debit),credit:num(r.credit),amount:num(r.debit)-num(r.credit),selected:r.selected} satisfies BankReconciliationLine));});
+
+export const listReconciliations = createServerFn({method:"GET"}).middleware([authMiddleware]).handler(async({context})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.view");return sql<{id:number;account_code:string;statement_from:string;statement_to:string;beginning_balance:string|number;ending_balance:string|number;status:string;created_at:string}>`select id,account_code,statement_from::text,statement_to::text,beginning_balance,ending_balance,status,created_at::text from bank_reconciliations where organization_id=${profile.organizationId} order by statement_to desc limit 100`;});
+
+export const saveReconciliation = createServerFn({method:"POST"})
+  .validator((input:unknown)=>z.object({id:z.number().int().positive().optional(),code:z.string().regex(/^[0-9]{3,6}$/),from:dateStr,to:dateStr,beginningBalance:z.number(),endingBalance:z.number(),lineIds:z.array(z.number().int().positive()).max(5000)}).refine(x=>x.to>=x.from,"End date must be on or after start date").parse(input))
+  .middleware([authMiddleware]).handler(async({context,data})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.post");try{const r=await sql<{id:number}>`select acct_save_reconciliation(${data.id??null}::bigint,${profile.organizationId},${context.userId},${data.code},${data.from}::date,${data.to}::date,${data.beginningBalance},${data.endingBalance},${JSON.stringify(data.lineIds)}::jsonb) id`;await audit(sql,profile.organizationId,context.userId,"save","bank_reconciliation",r[0]!.id);return{id:r[0]!.id};}catch(e){throw friendly(e);}});
+
+export const completeReconciliation = createServerFn({method:"POST"})
+  .validator((id:number)=>z.number().int().positive().parse(id)).middleware([authMiddleware])
+  .handler(async({context,data:id})=>{const sql=await getSql();const profile=await requirePermission(context.userId,"accounts.post");try{await sql`select acct_complete_reconciliation(${id}::bigint,${profile.organizationId})`;}catch(e){throw friendly(e);}await audit(sql,profile.organizationId,context.userId,"complete","bank_reconciliation",id);return{success:true};});
 
 // ============================================
 // PURCHASE ORDERS

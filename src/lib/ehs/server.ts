@@ -1580,7 +1580,8 @@ export const listAfterHoursVehicleRequests = createServerFn({ method: "GET" })
         r.outside_work_hours_confirmed, r.safety_checklist, r.status, r.reviewer_id,
         r.reviewed_at, r.review_note, r.created_at
       from after_hours_vehicle_requests r
-      join profiles p on p.user_id = r.user_id and p.organization_id = r.organization_id
+      join profiles p on p.user_id::text = r.user_id::text
+        and p.organization_id::text = r.organization_id::text
       where r.organization_id = $1${mayReview ? "" : " and r.user_id = $2"}
       order by r.created_at desc limit 200`;
     const rows = await sql.query<AfterHoursRequestRow>(query, mayReview ? [profile.organizationId] : [profile.organizationId, profile.userId]);
@@ -1600,7 +1601,7 @@ export const createAfterHoursVehicleRequest = createServerFn({ method: "POST" })
     const sql = await getSql();
     const vehicles = await sql<{ id: string; registration: string }>`
       select id, registration from vehicles
-      where id = ${data.vehicleId} and organization_id = ${profile.organizationId} and status = 'Active'`;
+      where id::text = ${data.vehicleId} and organization_id::text = ${profile.organizationId} and status = 'Active'`;
     const vehicle = vehicles[0];
     if (!vehicle) throw new Error("Choose an active vehicle from your company fleet");
 
@@ -1666,8 +1667,8 @@ export const reviewAfterHoursVehicleRequest = createServerFn({ method: "POST" })
           review_note = ${data.note?.trim() || null}
       where id = ${data.id} and organization_id = ${profile.organizationId}
         and status = 'Pending' and user_id <> ${profile.userId}
-        and exists (select 1 from vehicles v where v.id = after_hours_vehicle_requests.vehicle_id
-          and v.organization_id = after_hours_vehicle_requests.organization_id and v.status = 'Active')
+        and exists (select 1 from vehicles v where v.id::text = after_hours_vehicle_requests.vehicle_id::text
+          and v.organization_id::text = after_hours_vehicle_requests.organization_id::text and v.status = 'Active')
       returning user_id`;
     const request = updated[0];
     if (!request) throw new Error("This request was already decided or is unavailable");

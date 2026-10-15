@@ -52,6 +52,7 @@ export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mo
   const mayRequest = can(profile, "finance.request");
   const mayReview = can(profile, "fleet.manage") || can(profile, "ehs.manage");
   const [requests, setRequests] = useState<AfterHoursVehicleRequest[]>([]);
+  const [vehiclePlan, setVehiclePlan] = useState<"yes" | "no" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -95,9 +96,13 @@ export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mo
         <Notice msg={message} onClose={() => setMessage("")} />
         <Notice msg={error} tone="danger" />
         {mode === "mine" ? (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-xl text-sm text-fg-muted">Request permission before using a company vehicle outside your normal working hours.</p>
-            <button type="button" className={btnPrimary} onClick={() => setDialogOpen(true)}><Car className="size-4" /> Request vehicle use</button>
+          <div className="mb-4 space-y-3">
+            <p className="max-w-xl text-sm text-fg-muted">Are you planning to use a company vehicle today outside your normal working hours? Request approval before the trip.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" aria-pressed={vehiclePlan === "yes"} className={vehiclePlan === "yes" ? btnPrimary : btnGhost} onClick={() => { setVehiclePlan("yes"); setDialogOpen(true); }}><Car className="size-4" /> Yes, request vehicle use</button>
+              <button type="button" aria-pressed={vehiclePlan === "no"} className={vehiclePlan === "no" ? btnPrimary : btnGhost} onClick={() => { setVehiclePlan("no"); setDialogOpen(false); }}>No vehicle needed</button>
+            </div>
+            {vehiclePlan === "no" ? <p className="text-sm text-fg-muted">Noted. No vehicle request is needed today.</p> : null}
           </div>
         ) : (
           <p className="mb-4 text-sm text-fg-muted">Review the trip and safety checklist before approving. Approval is required before the vehicle is used.</p>
@@ -151,7 +156,7 @@ export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mo
         )}
       </Panel>
 
-      {dialogOpen ? <AfterHoursRequestForm profile={profile} onClose={() => setDialogOpen(false)} onDone={(text) => { setDialogOpen(false); setMessage(text); void load(); }} /> : null}
+      {dialogOpen ? <AfterHoursRequestForm profile={profile} onClose={() => setDialogOpen(false)} onDone={(text) => { setVehiclePlan("yes"); setDialogOpen(false); setMessage(text); void load(); }} /> : null}
       {rejecting ? (
         <Modal title="Reject after-hours request" onClose={() => { setRejecting(null); setRejectionNote(""); }}>
           <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void decide(rejecting, "Rejected", rejectionNote); }}>

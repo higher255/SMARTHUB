@@ -159,8 +159,8 @@ export async function notify(sql: Sql, n: NotifyInput): Promise<void> {
       from unnest(${ids}::text[]) as u`;
     if (emailConfigured()) {
       const recipients = await sql<{ email: string }>`select distinct lower(u.email) as email from "user" u
-        join profiles p on p.user_id = u.id
-        where p.user_id = any(${ids}::text[]) and p.status = 'active' and u.email <> ''
+        join profiles p on p.user_id::text = u.id::text
+        where p.user_id::text = any(${ids}::text[]) and p.status = 'active' and u.email <> ''
           and ((${n.organizationId}::text is null and p.organization_id is null)
             or p.organization_id::text = ${n.organizationId})`;
       const safe = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);

@@ -33,23 +33,31 @@ function FinanceDash({ profile }: { profile: Profile }) {
   const currency = brand?.currency ?? "TZS";
   const canView = can(profile, "finance.view");
   const canBooks = can(profile, "accounts.view");
-  const [tab, setTab] = useState<Tab>(canView ? "overview" : "accounting");
+  const canHandleRequests = ["finance.approve", "finance.endorse", "finance.pay"].some((permission) => can(profile, permission as "finance.approve" | "finance.endorse" | "finance.pay"));
+  const [tab, setTab] = useState<Tab>(canView ? "overview" : canHandleRequests ? "requests" : "accounting");
   const [requests, setRequests] = useState<FinanceRequest[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [msg, setMsg] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [selected, setSelected] = useState<FinanceRequest | null>(null);
   const [budgetFor, setBudgetFor] = useState<number | null>(null);
 
   const load = useCallback(async () => {
-    if (!canView) return;
-    const [r, s, b] = await Promise.all([listFinanceRequests({}).catch(() => []), getFinanceDashboardStats().catch(() => null), getProjectBudgetSummary().catch(() => [])]);
+    if (!canView && !canHandleRequests) return;
+    const errors: string[] = [];
+    const [r, s, b] = await Promise.all([
+      (canView || canHandleRequests ? listFinanceRequests({}) : Promise.resolve([])).catch(() => { errors.push("requests"); return []; }),
+      (canView ? getFinanceDashboardStats() : Promise.resolve(null)).catch(() => { errors.push("summary"); return null; }),
+      (canView ? getProjectBudgetSummary() : Promise.resolve([])).catch(() => { errors.push("budgets"); return []; }),
+    ]);
     setRequests(r);
     setStats(s);
     setBudgets(b);
+    setLoadError(errors.length ? `Could not load finance ${errors.join(", ")}. Refresh or contact your administrator.` : "");
     setSelected((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
-  }, [canView]);
+  }, [canView, canHandleRequests]);
   useLive(load, 15000);
   useLive(async () => setProjects((await listProjects().catch(() => [])).map((p) => ({ id: Number(p.id), name: p.name }))), 120000);
 
@@ -62,7 +70,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
   );
 
   const tabs = [
-    ...(canView ? [{ id: "overview" as const, label: "Overview" }, { id: "requests" as const, label: "Requests", badge: mine.length || undefined }, { id: "budgets" as const, label: "Project budgets" }] : []),
+    ...(canView ? [{ id: "overview" as const, label: "Overview" }, { id: "requests" as const, label: "Requests", badge: mine.length || undefined }, { id: "budgets" as const, label: "Project budgets" }] : canHandleRequests ? [{ id: "requests" as const, label: "Requests", badge: mine.length || undefined }] : []),
     ...(canBooks ? [{ id: "accounting" as const, label: "Accounting", icon: <BookOpen className="size-4" /> }] : []),
   ];
 
@@ -75,6 +83,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
         </div>
       </div>
       <Notice msg={msg} onClose={() => setMsg("")} />
+      <Notice msg={loadError} tone="danger" />
       <TabBar tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === "overview" && stats ? (

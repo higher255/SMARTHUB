@@ -16,6 +16,7 @@ const time = (v: string | null) => (v ? new Date(v).toLocaleTimeString("en-GB", 
 export function AttendanceCard({ projects }: { projects: { id: number; name: string }[] }) {
   const [me, setMe] = useState<Awaited<ReturnType<typeof getMyAttendance>> | null>(null);
   const [location, setLocation] = useState("");
+  const [workplace, setWorkplace] = useState<"office" | "other" | "">("");
   const [projectId, setProjectId] = useState<number | "">("");
   const [msg, setMsg] = useState("");
   const load = useCallback(async () => setMe(await getMyAttendance().catch(() => null)), []);
@@ -28,9 +29,16 @@ export function AttendanceCard({ projects }: { projects: { id: number; name: str
       {!today ? (
         <div className="space-y-3">
           <p className="text-sm text-fg-muted">You have not checked in today.</p>
-          <Field label="Where are you working (optional)"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Site, tower or office" className={inputCls} /></Field>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Are you working from the office today?</legend>
+            <div className="flex gap-2">
+              <button type="button" aria-pressed={workplace === "office"} className={workplace === "office" ? btnPrimary : btnGhost} onClick={() => { setWorkplace("office"); setLocation("Office"); }}>Yes, office</button>
+              <button type="button" aria-pressed={workplace === "other"} className={workplace === "other" ? btnPrimary : btnGhost} onClick={() => { setWorkplace("other"); setLocation(""); }}>No</button>
+            </div>
+          </fieldset>
+          {workplace === "other" ? <Field label="Where are you working today?"><input required value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Site, client office or remote location" className={inputCls} /></Field> : null}
           {projects.length ? <Field label="Project (optional)"><select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls}><option value="">None</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field> : null}
-          <button type="button" className={`${btnPrimary} w-full`} onClick={() => void run(() => checkIn({ data: { location: location || undefined, projectId: projectId ? Number(projectId) : undefined } }), "Checked in")}><LogIn className="size-4" /> Check in</button>
+          <button type="button" disabled={!workplace || (workplace === "other" && !location.trim())} className={`${btnPrimary} w-full`} onClick={() => void run(() => checkIn({ data: { location: location.trim(), projectId: projectId ? Number(projectId) : undefined } }), "Checked in")}><LogIn className="size-4" /> Check in</button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -65,21 +73,21 @@ export function AttendanceBoard() {
 // ------------------------------------------------------------ leave
 
 export function LeaveDialog({ onClose, onDone }: { onClose: () => void; onDone: (m: string) => void }) {
-  const [type, setType] = useState<"Annual" | "Sick" | "Compassionate" | "Unpaid" | "Other">("Annual");
+  const [type, setType] = useState<"Annual" | "Sick" | "Compassionate" | "Unpaid" | "Permission" | "Other">("Annual");
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
   const [reason, setReason] = useState("");
   const [err, setErr] = useState("");
   return (
-    <Modal title="Request leave" onClose={onClose}>
-      <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); try { const r = await requestLeave({ data: { leaveType: type, startDate: start, endDate: end, reason: reason || undefined } }); onDone(`Leave request for ${r.days} day(s) sent for approval`); } catch (x) { setErr(errorMessage(x)); } }}>
+    <Modal title="Request leave or permission" onClose={onClose}>
+      <form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); try { const r = await requestLeave({ data: { leaveType: type, startDate: start, endDate: end, reason: reason || undefined } }); onDone(`${type === "Permission" ? "Permission" : "Leave"} request for ${r.days} day(s) sent to HR for approval`); } catch (x) { setErr(errorMessage(x)); } }}>
         <Notice msg={err} tone="danger" />
-        <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value as typeof type)} className={inputCls}><option>Annual</option><option>Sick</option><option>Compassionate</option><option>Unpaid</option><option>Other</option></select></Field>
+        <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value as typeof type)} className={inputCls}><option>Annual</option><option>Sick</option><option>Compassionate</option><option>Unpaid</option><option>Permission</option><option>Other</option></select></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="From"><input type="date" value={start} min={todayIso()} onChange={(e) => { setStart(e.target.value); if (end < e.target.value) setEnd(e.target.value); }} className={inputCls} /></Field>
           <Field label="To"><input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} className={inputCls} /></Field>
         </div>
-        <Field label="Reason (optional)"><textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} className={inputCls} /></Field>
+        <Field label={type === "Permission" ? "Reason for permission (required)" : "Reason (optional)"}><textarea rows={2} required={type === "Permission"} value={reason} onChange={(e) => setReason(e.target.value)} className={inputCls} /></Field>
         <button type="submit" className={`${btnPrimary} w-full`}>Send request</button>
       </form>
     </Modal>

@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db.server";
-import { canAny } from "./access";
+import { can, canAny } from "./access";
 import { audit, getUserFullName, notify, requirePermission, requireProfile, usersWithPermission } from "./core";
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
@@ -27,7 +27,7 @@ export const getMyAttendance = createServerFn({ method: "GET" })
   });
 
 export const checkIn = createServerFn({ method: "POST" })
-  .validator((input: unknown) => z.object({ location: z.string().max(160).optional(), projectId: z.number().int().optional() }).parse(input ?? {}))
+  .validator((input: unknown) => z.object({ location: z.string().trim().min(1).max(160), projectId: z.number().int().optional() }).parse(input ?? {}))
   .middleware([authMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
@@ -59,10 +59,12 @@ export const listAttendance = createServerFn({ method: "GET" })
   .handler(async ({ context, data: date }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "attendance.view", "You cannot view attendance");
+    const teamLead = profile.role === "Team_Leader" || can(profile, "teamleader.dashboard");
     const rows = await sql<{ id: number; user_id: string; name: string | null; work_date: string; check_in: string; check_out: string | null; location: string | null; project_name: string | null }>`
       select a.id, a.user_id, p.full_name as name, a.work_date::text as work_date, a.check_in, a.check_out, a.location, pr.name as project_name
       from attendance a left join profiles p on p.user_id = a.user_id left join projects pr on pr.id = a.project_id
-      where a.organization_id = ${profile.organizationId} and a.work_date = coalesce(${date ?? null}::date, current_date) order by a.check_in`;
+      where a.organization_id = ${profile.organizationId} and a.work_date = coalesce(${date ?? null}::date, current_date)
+        and (${!teamLead} or a.project_id in (select pm.project_id from project_members pm where pm.user_id=${context.userId} and pm.status='Accepted')) order by a.check_in`;
     return rows.map((r): AttendanceRow => ({ id: r.id, userId: r.user_id, name: r.name, workDate: r.work_date, checkIn: r.check_in, checkOut: r.check_out, location: r.location, projectName: r.project_name }));
   });
 
@@ -78,7 +80,7 @@ export type LeaveRow = {
 export const requestLeave = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({
-      leaveType: z.enum(["Annual", "Sick", "Compassionate", "Unpaid", "Other"]),
+      leaveType: z.enum(["Annual", "Sick", "Compassionate", "Unpaid", "Permission", "Other"]),
       startDate: dateStr,
       endDate: dateStr,
       reason: z.string().max(500).optional(),
@@ -178,6 +180,10 @@ export const createSiteReport = createServerFn({ method: "POST" })
     const profile = await requirePermission(context.userId, "hours.record", "You cannot file site reports");
     const proj = await sql<{ user_id: string; name: string }>`select user_id, name from projects where id = ${data.projectId} and organization_id = ${profile.organizationId}`;
     if (!proj[0]) throw new Error("Choose a project from your company");
+    if (profile.role === "Team_Leader" || can(profile, "teamleader.dashboard")) {
+      const assigned = await sql`select 1 from project_members where project_id=${data.projectId} and user_id=${context.userId} and status='Accepted'`;
+      if (!assigned[0]) throw new Error("You can only report on a project assigned to your team");
+    }
     const rows = await sql<{ id: number }>`
       with r as (
         insert into site_reports (organization_id, project_id, report_date, summary, work_done, issues, weather, workers, hours_per_worker, created_by)
@@ -205,9 +211,12 @@ export const listSiteReports = createServerFn({ method: "GET" })
     const sql = await getSql();
     const profile = await requireProfile(context.userId);
     const all = canAny(profile, ["projects.manage", "ehs.view_org", "management.view"]);
+    const teamLead = profile.role === "Team_Leader" || can(profile, "teamleader.dashboard");
     const rows = await sql<{ id: number; project_id: number | null; project_name: string | null; report_date: string; summary: string; work_done: string | null; issues: string | null; weather: string | null; workers: number; hours_per_worker: string | number; author: string | null; created_at: string }>`
       select s.id, s.project_id, p.name as project_name, s.report_date::text as report_date, s.summary, s.work_done, s.issues, s.weather, s.workers, s.hours_per_worker, u.full_name as author, s.created_at
       from site_reports s left join projects p on p.id = s.project_id left join profiles u on u.user_id = s.created_by
-      where s.organization_id = ${profile.organizationId} and (${all} or s.created_by = ${context.userId}) order by s.report_date desc, s.id desc limit 40`;
+      where s.organization_id = ${profile.organizationId} and (${all} or s.created_by = ${context.userId}
+        or (${teamLead} and s.project_id in (select pm.project_id from project_members pm where pm.user_id=${context.userId} and pm.status='Accepted')))
+      order by s.report_date desc, s.id desc limit 40`;
     return rows.map((r): SiteReport => ({ id: r.id, projectId: r.project_id, projectName: r.project_name, reportDate: r.report_date, summary: r.summary, workDone: r.work_done, issues: r.issues, weather: r.weather, workers: r.workers, hoursPerWorker: num(r.hours_per_worker), author: r.author, createdAt: r.created_at }));
   });
