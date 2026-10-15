@@ -46,6 +46,12 @@ export function RoleGate({ path, children }: { path: string; children: (profile:
     return <div className="grid min-h-screen place-items-center bg-bg text-fg-muted"><p className="text-sm">Loading workspace…</p></div>;
   }
   if (!user) return <RedirectToSignIn />;
+  if (problem === "Unauthorized") {
+    return <Blocked
+      title="Your sign-in session could not be verified"
+      body="Sign out and sign in again. If this keeps happening, ask your administrator to check the production sign-in URL and authentication settings."
+    />;
+  }
   if (problem || !profile) return <Blocked title="Your account is not set up" body={problem ?? "Ask your administrator to add you to the company."} />;
   if (profile.status === "suspended") return <Blocked title="Account suspended" body="Your access has been suspended. Contact your company administrator." />;
   if (profile.status === "company_suspended") return <Blocked title="Company suspended" body="Access for this company is paused. Contact the Smart Hub owner." />;
