@@ -11,6 +11,7 @@ import { createPermit } from "@/lib/ehs/server";
 import { formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage } from "@/lib/ui/use-live";
 import { emailDeliveryNote } from "@/lib/ui/email-status";
+import { MoneyInput } from "@/components/finance/money-input";
 
 type Project = { id: number; name: string };
 export type OtherKind = "hazard" | "leave";
@@ -76,7 +77,7 @@ function Back({ onClose }: { onClose: () => void }) { return <button type="butto
 function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typeId: string; projects: Project[]; currency: string; limit: number; onClose: () => void; onDone: (m: string) => void }) {
   const [type, setType] = useState(typeId);
   const t = moneyTypeById(type);
-  const [projectId, setProjectId] = useState<number | "">(projects[0]?.id ?? "");
+  const [projectId, setProjectId] = useState<number | "">("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -97,8 +98,8 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
     <Modal title={`Request: ${t.label}`} onClose={onClose} wide>
       <form className="space-y-3" onSubmit={async (e) => {
         e.preventDefault(); setErr("");
-        if (!projectId) return setErr("Please choose a project");
         if (!(amount > 0)) return setErr("Please enter the price");
+        if (!projectId && description.trim().length < 5) return setErr("Describe the work or office activity this request supports");
         setBusy(true);
         try {
           const details = [
@@ -108,7 +109,7 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
             byQty ? `Quantity: ${quantity} ${unit} at ${formatMoney(Number(unitPrice) || 0, currency)} each` : "",
           ].filter(Boolean).join("\n");
           const r = await createFinanceRequest({ data: {
-            projectId: Number(projectId), title: `${t.label}: ${title}`.slice(0, 200), description: details, amount, priority, category: t.category,
+            projectId: projectId ? Number(projectId) : null, title: `${t.label}: ${title}`.slice(0, 200), description: details, amount, priority, category: t.category,
           } });
           const failed = await uploadPending("finance_request", r.requestId, files);
           const route = departmentNeedsReview(t.department) ? `${t.department} reviews it first, then finance.` : r.requiresManager ? "A manager endorses it, then finance." : "It went to finance.";
@@ -119,7 +120,7 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
         <p className="rounded-lg bg-accent/5 px-3 py-2 text-xs text-fg-muted">{ROUTE[t.department]}. {departmentNeedsReview(t.department) ? "Include enough detail for the reviewer to check the price." : ""}</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>{MONEY_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
-          <Field label="Project"><select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls} required><option value="">Choose project</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+          <Field label="Project (optional)"><select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls}><option value="">No project · Company / office</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
         </div>
         <Field label="What is it for (short title)"><input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Diesel for generator, Site A" className={inputCls} /></Field>
         <Field label="Description"><textarea required minLength={5} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What exactly is needed, why, and any supplier or quote details" className={inputCls} /></Field>
@@ -136,9 +137,9 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
             <div className="grid grid-cols-3 gap-3">
               <Field label="Quantity"><input inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
               <Field label="Unit"><input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="litres, pcs" className={inputCls} /></Field>
-              <Field label="Price each"><input inputMode="decimal" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
+              <Field label="Price each"><MoneyInput value={unitPrice} onChange={setUnitPrice} className={inputCls} /></Field>
             </div>
-          ) : <Field label="Total price"><input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>}
+          ) : <Field label="Total price"><MoneyInput value={total} onChange={setTotal} className={inputCls} /></Field>}
           <p className="mt-2 text-sm font-semibold tabular-nums">Total: {formatMoney(amount, currency)}</p>
           {limit > 0 && amount > limit ? <p className="mt-1 text-xs text-warn">Above {formatMoney(limit, currency)}: a manager endorses it before finance.</p> : null}
         </div>

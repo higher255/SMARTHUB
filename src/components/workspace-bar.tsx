@@ -25,16 +25,22 @@ let brandCache: OrgBrand | null = null;
 export function useOrgBrand(): OrgBrand | null {
   const [brand, setBrand] = useState<OrgBrand | null>(brandCache);
   useEffect(() => {
-    if (brandCache) return;
     let live = true;
-    getOrgBrand().then((b) => { brandCache = b; if (live) setBrand(b); }).catch(() => undefined);
-    return () => { live = false; };
+    const refresh = () => {
+      if (!live) return;
+      if (brandCache) { setBrand(brandCache); return; }
+      getOrgBrand().then((b) => { brandCache = b; if (live) setBrand(b); }).catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener("smarthub:org-brand-changed", refresh);
+    return () => { live = false; window.removeEventListener("smarthub:org-brand-changed", refresh); };
   }, []);
   return brand;
 }
 
 export function invalidateOrgBrand() {
   brandCache = null;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("smarthub:org-brand-changed"));
 }
 
 function SignOutButton({ compact = false }: { compact?: boolean }) {

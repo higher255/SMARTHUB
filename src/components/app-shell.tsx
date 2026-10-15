@@ -8,10 +8,12 @@ import type { ReactNode } from "react";
 export function AppShell({
   title,
   subtitle,
+  coverImage,
   children,
 }: {
   title: string;
   subtitle: string;
+  coverImage?: string | null;
   /** Kept for compatibility with older pages; the workspace bar now shows the role. */
   role?: EhsRole;
   children: ReactNode;
@@ -20,9 +22,10 @@ export function AppShell({
     <div className="relative min-h-[calc(100vh-3.5rem)] text-fg">
       <PageBackground variant="subtle" />
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        <div className="mb-8 stagger-in">
+        <div className={`relative isolate mb-8 min-h-36 overflow-hidden rounded-2xl border border-border px-5 py-6 stagger-in sm:px-8 sm:py-8 ${coverImage !== undefined ? "bg-bg-elevated" : "border-transparent bg-transparent px-0 py-0"}`}>
+          {coverImage !== undefined ? <><img src={coverImage || "/hero.jpg"} alt="" aria-hidden="true" className="absolute inset-0 -z-10 size-full object-cover opacity-[0.18]" onError={(e) => { e.currentTarget.style.display = "none"; }} /><div className="absolute inset-0 -z-10 bg-gradient-to-r from-bg-elevated/95 via-bg-elevated/80 to-bg-elevated/45" /></> : null}
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-fg-muted">{subtitle}</p>
+          <p className="mt-2 max-w-2xl text-sm text-fg-muted sm:text-base">{subtitle}</p>
         </div>
         {children}
       </main>

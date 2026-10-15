@@ -14,6 +14,7 @@ import { authClient } from "@/lib/auth/client";
 import { useCurrentUser } from "@/lib/auth/use-current-user";
 import { getPlatformOwnerSecurity, setPlatformOwnerPassword, updatePlatformOwnerName } from "@/lib/ehs/platform";
 import type { Profile } from "@/lib/ehs/server";
+import { MoneyInput } from "@/components/finance/money-input";
 
 export const Route = createFileRoute("/platform")({ component: PlatformPage });
 
@@ -230,7 +231,7 @@ function TenantDialog({ tenant: t, onClose, onDone }: { tenant: Tenant; onClose:
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Plan"><input value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })} className={inputCls} /></Field>
         <Field label="User limit (0 = no limit)"><input inputMode="numeric" value={f.maxUsers} onChange={(e) => setF({ ...f, maxUsers: e.target.value.replace(/\D/g, "") })} className={inputCls} /></Field>
-        <Field label={`Monthly rent (${t.currency})`}><input inputMode="decimal" value={f.monthlyFee} onChange={(e) => setF({ ...f, monthlyFee: e.target.value.replace(/[^0-9.]/g, "") })} className={inputCls} /></Field>
+        <Field label={`Monthly rent (${t.currency})`}><MoneyInput value={f.monthlyFee} onChange={(monthlyFee) => setF({ ...f, monthlyFee })} className={inputCls} /></Field>
         <Field label="Plan expiry"><input type="date" value={f.paidUntil} disabled={f.billingExempt} onChange={(e) => setF({ ...f, paidUntil: e.target.value })} className={inputCls} /></Field>
         <Field label="Contact person"><input value={f.contactName} onChange={(e) => setF({ ...f, contactName: e.target.value })} className={inputCls} /></Field>
         <Field label="Contact email"><input type="email" value={f.contactEmail} onChange={(e) => setF({ ...f, contactEmail: e.target.value })} className={inputCls} /></Field>
@@ -275,7 +276,7 @@ function PaymentDialog({ tenant: t, onClose, onDone }: { tenant: Tenant; onClose
         <Notice msg={err} tone="danger" />
         <div className="grid grid-cols-2 gap-3">
           <Field label="Months paid for"><input inputMode="numeric" value={months} onChange={(e) => { const m = e.target.value.replace(/\D/g, ""); setMonths(m); if (t.monthlyFee) setAmount(String(t.monthlyFee * (Number(m) || 1))); }} className={inputCls} /></Field>
-          <Field label={`Amount (${t.currency})`}><input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
+          <Field label={`Amount (${t.currency})`}><MoneyInput required value={amount} onChange={setAmount} className={inputCls} /></Field>
           <Field label="Method"><select value={method} onChange={(e) => setMethod(e.target.value)} className={inputCls}><option>Bank</option><option>Cash</option><option>M-Pesa</option><option>Tigo Pesa</option><option>Airtel Money</option></select></Field>
           <Field label="Date"><input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field>
         </div>
@@ -303,7 +304,7 @@ function NewCompany({ onClose, onDone }: { onClose: () => void; onDone: (m: stri
           <Field label="Currency"><select value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as "TZS" | "USD" })} className={inputCls}><option>TZS</option><option>USD</option></select></Field>
           <Field label="Plan"><input value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })} className={inputCls} /></Field>
           <Field label="User limit (0 = no limit)"><input inputMode="numeric" value={f.maxUsers} onChange={(e) => setF({ ...f, maxUsers: e.target.value.replace(/\D/g, "") })} className={inputCls} /></Field>
-          <Field label="Monthly rent"><input inputMode="decimal" value={f.monthlyFee} onChange={(e) => setF({ ...f, monthlyFee: e.target.value.replace(/[^0-9.]/g, "") })} className={inputCls} /></Field>
+          <Field label="Monthly rent"><MoneyInput value={f.monthlyFee} onChange={(monthlyFee) => setF({ ...f, monthlyFee })} className={inputCls} /></Field>
           <Field label="Plan duration (days; 0 = no expiry)"><input inputMode="numeric" value={f.planDays} onChange={(e) => setF({ ...f, planDays: e.target.value.replace(/\D/g, "") })} className={inputCls} /></Field>
         </div>
         <hr className="border-border" />

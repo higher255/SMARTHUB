@@ -18,6 +18,7 @@ import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { emailDeliveryNote } from "@/lib/ui/email-status";
 import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
+import { MoneyInput } from "@/components/finance/money-input";
 
 export const Route = createFileRoute("/dashboard")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -76,6 +77,11 @@ function MyWork({ profile }: { profile: Profile }) {
   const [dialog, setDialog] = useState<null | "request" | "hazard" | "hours" | "ncr" | "leave" | "report">(null);
   const [leaveKey, setLeaveKey] = useState(0);
   const openedLinkedRequest = useRef<number | null>(null);
+  const [clockNow, setClockNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const load = useCallback(async () => {
     const [r, h, n, a, alerts] = await Promise.all([
@@ -143,6 +149,11 @@ function MyWork({ profile }: { profile: Profile }) {
   const open = requests.filter((r) => ["Submitted", "Under Review", "Approved"].includes(r.status));
   const paidThisMonth = requests.filter((r) => r.status === "Paid" && r.paidAt && new Date(r.paidAt).getMonth() === new Date().getMonth()).reduce((s, r) => s + r.amount, 0);
   const currency = brand?.currency ?? "TZS";
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", hourCycle: "h23" }).format(clockNow));
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const timeLabel = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(clockNow);
+  const checkInTime = attendance?.today?.checkIn ? new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(attendance.today.checkIn)) : null;
+  const welcome = checkInTime ? `${greeting}. You checked in at ${checkInTime} — have a focused and productive day. It’s ${timeLabel}.` : `${greeting}. Karibu kazini leo. It’s ${timeLabel}; start by checking in when you’re ready.`;
   const attendanceDetail = attendance?.today
     ? attendance.today.checkOut
       ? `In ${new Date(attendance.today.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · out ${new Date(attendance.today.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
@@ -158,7 +169,7 @@ function MyWork({ profile }: { profile: Profile }) {
   ];
 
   return (
-    <AppShell title={`Hello, ${profile.fullName.split(" ")[0] || "team"}`} subtitle="Your requests, daily declarations and site reporting in one place." role={profile.role}>
+    <AppShell title={`Hello, ${profile.fullName.split(" ")[0] || "team"} · Karibu kazini leo`} subtitle={welcome} coverImage={brand?.dashboardCoverUrl ?? ""} role={profile.role}>
       <Notice msg={msg} onClose={() => setMsg("")} />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -306,7 +317,7 @@ function HealthCard({ current, onSaved }: { current?: HealthRow; onSaved: (m: st
 }
 
 function RequestDialog({ projects, limit, currency, onClose, onDone }: { projects: Project[]; limit: number; currency: string; onClose: () => void; onDone: (m: string) => void }) {
-  const [projectId, setProjectId] = useState<number | "">(projects[0]?.id ?? "");
+  const [projectId, setProjectId] = useState<number | "">("");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<"Material" | "Equipment" | "Labor" | "Transport" | "Other">("Material");
   const [amount, setAmount] = useState("");
@@ -338,7 +349,8 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
-        <Field label="What is it for"><input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fuel for generator, Site A" className={inputCls} /></Field>
+        <Field label="What is the request for"><input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fuel for generator" className={inputCls} /></Field>
+        {!projectId ? <p className="-mt-2 text-xs text-fg-muted">No project selected. Describe the work or office activity this money will support.</p> : null}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value as typeof category)} className={inputCls}>
@@ -351,9 +363,9 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
             </select>
           </Field>
         </div>
-        <Field label={`Amount (${currency})`}><input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
+        <Field label={`Amount (${currency})`}><MoneyInput required value={amount} onChange={setAmount} className={inputCls} /></Field>
         {needsManager ? <p className="text-xs text-warn">Above {formatMoney(limit, currency)}: a manager endorses this before finance approves.</p> : null}
-        <Field label="Details (optional)"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputCls} /></Field>
+        <Field label={projectId ? "Details (optional)" : "Work / purpose details (required)"}><textarea required={!projectId} value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder={!projectId ? "Explain what work this supports and why the money is needed" : "Add useful details for the approver"} className={inputCls} /></Field>
         <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}><Send className="size-4" /> {busy ? "Sending…" : "Send request"}</button>
       </form>
     </Modal>

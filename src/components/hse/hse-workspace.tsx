@@ -13,6 +13,7 @@ import { listIncidents, listProjects, type Incident, type Profile } from "@/lib/
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
+import { MoneyInput } from "@/components/finance/money-input";
 
 type Sub = "kpis" | "observations" | "ncr" | "hira" | "subs";
 const th = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-subtle";
@@ -115,7 +116,7 @@ function ClassifyDialog({ incident, onClose, onDone }: { incident: Incident; onC
         <p className="text-xs text-fg-muted">Medical treatment, restricted work, lost time and fatality count as recordable in TRIFR.</p>
         {injury === "Lost Time" || injury === "Fatality" ? <Field label="Days lost"><input inputMode="numeric" value={lost} onChange={(e) => setLost(e.target.value.replace(/\D/g, ""))} className={inputCls} /></Field> : null}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Cost estimate"><input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
+          <Field label="Cost estimate"><MoneyInput value={cost} onChange={setCost} className={inputCls} /></Field>
           <Field label="Idle hours"><input inputMode="decimal" value={idle} onChange={(e) => setIdle(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
         </div>
         <button type="submit" className={`${btnPrimary} w-full`}>Save classification</button>

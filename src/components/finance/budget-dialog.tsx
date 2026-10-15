@@ -3,6 +3,7 @@ import { Modal, Notice, btnGhost, btnPrimary, inputCls } from "@/components/ui-k
 import { getProjectBudget, setProjectBudget, type ProjectBudget } from "@/lib/ehs/finance";
 import { formatMoney } from "@/lib/ui/format";
 import { errorMessage } from "@/lib/ui/use-live";
+import { MoneyInput } from "@/components/finance/money-input";
 
 const LABEL: Record<string, string> = { Material: "Materials", Equipment: "Equipment", Labor: "Labour", Transport: "Transport", Other: "Other" };
 
@@ -31,7 +32,7 @@ export function BudgetDialog({ projectId, currency, canEdit, onClose, onSaved }:
               return (
                 <tr key={l.category}>
                   <td className="px-3 py-2.5 text-sm">{LABEL[l.category]}{alloc > 0 ? <div className="mt-1 h-1 w-24 rounded-full bg-bg-subtle"><div className={`h-1 rounded-full ${pct > 100 || left < 0 ? "bg-danger" : pct > 80 ? "bg-warn" : "bg-accent"}`} style={{ width: `${pct}%` }} /></div> : null}</td>
-                  <td className="px-3 py-2 text-right">{canEdit ? <input inputMode="decimal" value={vals[l.category] ?? ""} onChange={(e) => setVals({ ...vals, [l.category]: e.target.value.replace(/[^0-9.]/g, "") })} className={`${inputCls} w-36 text-right`} /> : <span className="text-sm tabular-nums">{formatMoney(l.allocated, currency)}</span>}</td>
+                  <td className="px-3 py-2 text-right">{canEdit ? <MoneyInput value={vals[l.category] ?? ""} onChange={(value) => setVals({ ...vals, [l.category]: value })} className={`${inputCls} w-36 text-right`} /> : <span className="text-sm tabular-nums">{formatMoney(l.allocated, currency)}</span>}</td>
                   <td className="px-3 py-2.5 text-right text-sm tabular-nums">{formatMoney(l.committed, currency)}</td>
                   <td className="px-3 py-2.5 text-right text-sm tabular-nums">{formatMoney(l.paid, currency)}</td>
                   <td className={`px-3 py-2.5 text-right text-sm tabular-nums ${alloc > 0 && left < 0 ? "text-danger" : ""}`}>{alloc > 0 ? formatMoney(left, currency) : "-"}</td>

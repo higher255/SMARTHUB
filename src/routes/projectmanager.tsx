@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { MoneyInput } from "@/components/finance/money-input";
 import { useEffect, useState, useMemo } from "react";
 import { RoleGate } from "@/components/role-gate";
 import { Notice } from "@/components/ui-kit";
@@ -506,7 +507,7 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-fg">Budget (TZS)</label>
-                  <input required type="number" min={0} value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="1000000" className={inputClass} />
+                  <MoneyInput required value={budget} onChange={setBudget} placeholder="1,000,000" className={inputClass} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-fg">Deadline</label>

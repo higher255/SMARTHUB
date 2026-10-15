@@ -1010,6 +1010,7 @@ export type OrgBrand = {
   name: string;
   displayName: string;
   logoUrl: string | null;
+  dashboardCoverUrl: string | null;
   primaryColor: string | null;
   currency: string;
   vatRate: number;
@@ -1023,7 +1024,7 @@ export type OrgBrand = {
 };
 
 function mapOrg(r: {
-  id: string; name: string; display_name: string | null; logo_url: string | null; primary_color: string | null;
+  id: string; name: string; display_name: string | null; logo_url: string | null; dashboard_cover_url: string | null; primary_color: string | null;
   currency: string; vat_rate: string | number; manager_approval_limit: string | number; modules: string[] | null; books_locked_until: string | null;
   plan: string; max_users: number; paid_until: string | null; enforce_budget: boolean;
 }): OrgBrand {
@@ -1032,6 +1033,7 @@ function mapOrg(r: {
     name: r.name,
     displayName: r.display_name || r.name,
     logoUrl: r.logo_url,
+    dashboardCoverUrl: r.dashboard_cover_url,
     primaryColor: r.primary_color,
     currency: r.currency,
     vatRate: Number(r.vat_rate),
@@ -1051,7 +1053,7 @@ export const getOrgBrand = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const sql = await getSql();
     const profile = await requireProfile(context.userId);
-    const rows = await sql<Parameters<typeof mapOrg>[0]>`select id, name, display_name, logo_url, primary_color, currency, vat_rate,
+    const rows = await sql<Parameters<typeof mapOrg>[0]>`select id, name, display_name, logo_url, dashboard_cover_url, primary_color, currency, vat_rate,
         manager_approval_limit, modules, books_locked_until::text as books_locked_until,
         plan, max_users, paid_until::text as paid_until, enforce_budget
       from organizations where id = ${profile.organizationId}`;
@@ -1064,6 +1066,7 @@ export const updateCompanySettings = createServerFn({ method: "POST" })
     z.object({
       displayName: z.string().min(1).max(100).optional(),
       logoUrl: z.string().url().max(500).or(z.literal("")).optional(),
+      dashboardCoverUrl: z.string().url().max(1000).refine((value) => value.startsWith("https://"), "Use a public HTTPS image link").or(z.literal("")).optional(),
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).or(z.literal("")).optional(),
       currency: z.enum(["TZS", "USD"]).optional(),
       vatRate: z.number().min(0).max(30).optional(),
@@ -1079,6 +1082,7 @@ export const updateCompanySettings = createServerFn({ method: "POST" })
     await sql`update organizations set
         display_name = coalesce(${data.displayName ?? null}::text, display_name),
         logo_url = case when ${data.logoUrl ?? null}::text is null then logo_url else nullif(${data.logoUrl ?? null}::text, '') end,
+        dashboard_cover_url = case when ${data.dashboardCoverUrl ?? null}::text is null then dashboard_cover_url else nullif(${data.dashboardCoverUrl ?? null}::text, '') end,
         primary_color = case when ${data.primaryColor ?? null}::text is null then primary_color else nullif(${data.primaryColor ?? null}::text, '') end,
         currency = coalesce(${data.currency ?? null}::text, currency),
         vat_rate = coalesce(${data.vatRate ?? null}::numeric, vat_rate),

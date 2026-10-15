@@ -14,6 +14,7 @@ import type { Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { PayablesWorkspace, ReconciliationWorkspace, VatWorkspace } from "./operations";
+import { MoneyInput } from "@/components/finance/money-input";
 
 type Sub = "invoices" | "bills" | "banking" | "tax" | "journal" | "reports" | "accounts" | "orders";
 
@@ -168,7 +169,7 @@ function InvoiceForm({ projects, defaultVat, currency, onClose, onDone }: { proj
                 <tr key={i} className="border-b border-border last:border-0">
                   <td className="p-2"><input value={l.description} onChange={(e) => setLines((cur) => cur.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} className={inputCls} /></td>
                   <td className="p-2"><input inputMode="decimal" value={l.quantity} onChange={(e) => setLines((cur) => cur.map((x, j) => (j === i ? { ...x, quantity: e.target.value.replace(/[^0-9.]/g, "") } : x)))} className={inputCls} /></td>
-                  <td className="p-2"><input inputMode="decimal" value={l.unitPrice} onChange={(e) => setLines((cur) => cur.map((x, j) => (j === i ? { ...x, unitPrice: e.target.value.replace(/[^0-9.]/g, "") } : x)))} className={inputCls} /></td>
+                  <td className="p-2"><MoneyInput value={l.unitPrice} onChange={(unitPrice) => setLines((cur) => cur.map((x, j) => (j === i ? { ...x, unitPrice } : x)))} className={inputCls} /></td>
                   <td className={num}>{formatMoney((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), currency)}</td>
                   <td className="p-2"><button type="button" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((cur) => cur.filter((_, j) => j !== i))} className="rounded p-1.5 text-fg-muted hover:bg-bg-subtle disabled:opacity-30"><Trash2 className="size-4" /></button></td>
                 </tr>
@@ -224,7 +225,7 @@ function InvoiceView({ id, canEdit, onClose, onChanged }: { id: number; canEdit:
 
       {paying ? (
         <div className="mb-5 grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-4 print:hidden">
-          <Field label="Amount"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} className={inputCls} /></Field>
+          <Field label="Amount"><MoneyInput value={amount} onChange={setAmount} className={inputCls} /></Field>
           <Field label="Method"><select value={method} onChange={(e) => setMethod(e.target.value as typeof method)} className={inputCls}><option>Bank</option><option>Cash</option><option>M-Pesa</option><option>Tigo Pesa</option><option>Airtel Money</option><option>Cheque</option></select></Field>
           <Field label="Date"><input type="date" value={payDate} max={todayIso()} onChange={(e) => setPayDate(e.target.value)} className={inputCls} /></Field>
           <Field label="Reference"><input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} /></Field>
@@ -345,8 +346,8 @@ function VoucherForm({ accounts, onClose, onDone }: { accounts: Account[]; onClo
               {lines.map((l, i) => (
                 <tr key={i} className="border-b border-border last:border-0">
                   <td className="p-2"><select value={l.account} onChange={(e) => set(i, { account: e.target.value })} className={inputCls}><option value="">Choose account</option>{accounts.filter((a) => a.active).map((a) => <option key={a.id} value={a.code}>{a.code} {a.name}</option>)}</select></td>
-                  <td className="p-2"><input inputMode="decimal" value={l.debit} onChange={(e) => set(i, { debit: e.target.value.replace(/[^0-9.]/g, ""), credit: e.target.value ? "" : l.credit })} className={`${inputCls} text-right`} /></td>
-                  <td className="p-2"><input inputMode="decimal" value={l.credit} onChange={(e) => set(i, { credit: e.target.value.replace(/[^0-9.]/g, ""), debit: e.target.value ? "" : l.debit })} className={`${inputCls} text-right`} /></td>
+                  <td className="p-2"><MoneyInput value={l.debit} onChange={(debit) => set(i, { debit, credit: debit ? "" : l.credit })} className={`${inputCls} text-right`} /></td>
+                  <td className="p-2"><MoneyInput value={l.credit} onChange={(credit) => set(i, { credit, debit: credit ? "" : l.debit })} className={`${inputCls} text-right`} /></td>
                   <td className="p-2"><button type="button" aria-label="Remove line" disabled={lines.length <= 2} onClick={() => setLines((cur) => cur.filter((_, j) => j !== i))} className="rounded p-1.5 text-fg-muted hover:bg-bg-subtle disabled:opacity-30"><Trash2 className="size-4" /></button></td>
                 </tr>
               ))}
@@ -559,6 +560,7 @@ function Accounts({ profile }: { profile: Profile }) {
 }
 
 function Orders({ profile, projects }: { profile: Profile; projects: { id: number; name: string }[] }) {
+  const brand = useOrgBrand();
   const canMake = can(profile, "accounts.invoices");
   const [rows, setRows] = useState<PurchaseOrder[]>([]);
   const [msg, setMsg] = useState("");
@@ -571,9 +573,9 @@ function Orders({ profile, projects }: { profile: Profile; projects: { id: numbe
       {canMake ? (
         <form className="grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-5" onSubmit={async (e) => { e.preventDefault(); try { const r = await createPurchaseOrder({ data: { supplierName: f.supplierName, description: f.description, amount: Number(f.amount), projectId: f.projectId ? Number(f.projectId) : undefined } }); setMsg(`${r.poNumber} created`); setF({ supplierName: "", description: "", amount: "", projectId: "" }); void load(); } catch (err) { setMsg(errorMessage(err)); } }}>
           <Field label="Supplier"><input required value={f.supplierName} onChange={(e) => setF({ ...f, supplierName: e.target.value })} className={inputCls} /></Field>
-          <div className="sm:col-span-2"><Field label="Description"><input required value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={inputCls} /></Field></div>
-          <Field label="Amount"><input required inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value.replace(/[^0-9.]/g, "") })} className={inputCls} /></Field>
-          <Field label="Project"><select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })} className={inputCls}><option value="">None</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+          <div className="sm:col-span-2"><Field label="Purpose / work description"><input required value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What is being purchased and what work is it for?" className={inputCls} /></Field></div>
+          <Field label={`Amount (${brand?.currency ?? "TZS"})`}><MoneyInput required value={f.amount} onChange={(amount) => setF({ ...f, amount })} className={inputCls} /></Field>
+          <Field label="Project (optional)"><select value={f.projectId} onChange={(e) => setF({ ...f, projectId: e.target.value })} className={inputCls}><option value="">None · Company / office</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
           <div className="sm:col-span-5"><button type="submit" className={btnPrimary}><Plus className="size-4" /> Create purchase order</button></div>
         </form>
       ) : null}
