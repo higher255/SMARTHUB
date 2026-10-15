@@ -75,13 +75,13 @@ export function Modal({ title, onClose, children, wide = false }: { title: strin
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={title} className={`max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-border bg-bg-elevated shadow-xl sm:rounded-2xl ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}>
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-bg-elevated px-5 py-3.5">
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4 sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-bg-elevated shadow-xl ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}>
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-elevated px-5 py-3.5">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1.5 text-fg-muted hover:bg-bg-subtle"><X className="size-4" /></button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
