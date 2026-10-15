@@ -4,7 +4,7 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { auth } from "@/lib/auth/server";
 import { getSql } from "@/lib/db.server";
-import { audit, requirePlatformAdmin } from "./core";
+import { audit, notify, requirePlatformAdmin } from "./core";
 
 const num = (v: unknown) => Number(v ?? 0);
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
@@ -168,15 +168,22 @@ export const broadcastToTenants = createServerFn({ method: "POST" })
     const sql = await getSql();
     await requirePlatformAdmin(context.userId);
     const ids = data.companyIds && data.companyIds.length ? data.companyIds : null;
-    const sent = await sql<{ id: number }>`insert into notifications (user_id, organization_id, title, message, type)
-      select p.user_id, p.organization_id::text, ${data.title}, ${data.message}, 'platform'
+    const recipients = await sql<{ user_id: string; organization_id: string }>`select p.user_id, p.organization_id::text
       from profiles p join organizations o on o.id::text = p.organization_id::text
       where p.status = 'active' and o.status = 'active' and not p.is_platform_admin
         and (${data.audience === "everyone"} or p.role = 'Admin')
-        and (${ids}::text[] is null or o.id::text = any(${ids}::text[]))
-      returning id`;
-    await audit(sql, null, context.userId, "broadcast", "broadcast", null, { title: data.title, recipients: sent.length });
-    return { sent: sent.length };
+        and (${ids}::text[] is null or o.id::text = any(${ids}::text[]))`;
+    const byOrganization = new Map<string, string[]>();
+    for (const recipient of recipients) {
+      const users = byOrganization.get(recipient.organization_id) ?? [];
+      users.push(recipient.user_id);
+      byOrganization.set(recipient.organization_id, users);
+    }
+    await Promise.all([...byOrganization].map(([organizationId, userIds]) => notify(sql, {
+      organizationId, userIds, title: data.title, message: data.message, type: "platform", link: "/",
+    })));
+    await audit(sql, null, context.userId, "broadcast", "broadcast", null, { title: data.title, recipients: recipients.length });
+    return { sent: recipients.length };
   });
 
 export const listPlatformActivity = createServerFn({ method: "GET" })
