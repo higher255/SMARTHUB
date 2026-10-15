@@ -13,7 +13,7 @@ import { errorMessage, useLive } from "@/lib/ui/use-live";
 type Project = { id: number; name: string };
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function SafetyHubWorkspace({ profile, compact = false }: { profile: Profile; compact?: boolean }) {
+export function SafetyHubWorkspace({ profile, compact = false, onActionComplete }: { profile: Profile; compact?: boolean; onActionComplete?: () => void }) {
   const [observations, setObservations] = useState<SafetyObservation[]>([]);
   const [challenges, setChallenges] = useState<WellbeingChallenge[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,7 +36,7 @@ export function SafetyHubWorkspace({ profile, compact = false }: { profile: Prof
     if (can(profile, "ehs.view_org") || manage) setSummary(await getObservationSummary().catch(() => null));
   }, [manage, profile]);
   useLive(load, 30000);
-  const complete = (msg: string) => { setDialog(null); setMessage(msg); void load(); };
+  const complete = (msg: string) => { setDialog(null); setMessage(msg); onActionComplete?.(); void load(); };
 
   return <div className="space-y-5">
     <Notice msg={message} onClose={() => setMessage("")} />
@@ -75,7 +75,7 @@ export function SafetyHubWorkspace({ profile, compact = false }: { profile: Prof
             <div className="flex items-start justify-between gap-3"><div><p className="font-medium">{c.title}</p><p className="text-xs text-fg-muted">{c.startsOn} – {c.endsOn} · {c.dailyStepGoal.toLocaleString()} steps/day</p></div><StatusBadge status={c.status} /></div>
             {c.description ? <p className="mt-2 text-sm text-fg-muted">{c.description}</p> : null}
             <div className="mt-3 grid grid-cols-3 gap-2 text-center"><Metric label="Members" value={c.participantCount} /><Metric label="Team steps" value={c.totalSteps.toLocaleString()} /><Metric label="Your steps" value={c.mySteps.toLocaleString()} /></div>
-            {c.status === "Active" ? <div className="mt-3 flex items-end gap-2"><Field label="Your steps today"><input type="number" min="0" max="100000" inputMode="numeric" className={inputCls} value={steps[c.id] ?? ""} onChange={(e) => setSteps((s) => ({ ...s, [c.id]: e.target.value }))} placeholder={String(c.myTodaySteps || "e.g. 6400")} /></Field><button type="button" className={btnPrimary} disabled={steps[c.id] === undefined || steps[c.id] === ""} onClick={() => void logWellbeingSteps({ data: { challengeId: c.id, entryDate: today(), steps: Number(steps[c.id]) } }).then(() => { setMessage("Your steps were saved"); void load(); }).catch((e) => setMessage(errorMessage(e)))}><Footprints className="size-4" /> Save</button></div> : null}
+            {c.status === "Active" ? <div className="mt-3 flex items-end gap-2"><Field label="Your steps today"><input type="number" min="0" max="100000" inputMode="numeric" className={inputCls} value={steps[c.id] ?? ""} onChange={(e) => setSteps((s) => ({ ...s, [c.id]: e.target.value }))} placeholder={String(c.myTodaySteps || "e.g. 6400")} /></Field><button type="button" className={btnPrimary} disabled={steps[c.id] === undefined || steps[c.id] === ""} onClick={() => void logWellbeingSteps({ data: { challengeId: c.id, entryDate: today(), steps: Number(steps[c.id]) } }).then(() => { setMessage("Your steps were saved"); onActionComplete?.(); void load(); }).catch((e) => setMessage(errorMessage(e)))}><Footprints className="size-4" /> Save</button></div> : null}
             {canChallenge && c.status === "Active" ? <button type="button" className={`${btnGhost} mt-2`} onClick={() => void setWellbeingChallengeStatus({ data: { id: c.id, status: "Completed" } }).then(() => { setMessage("Challenge completed"); void load(); }).catch((e) => setMessage(errorMessage(e)))}>Complete challenge</button> : null}
           </li>)}
         </ul>}

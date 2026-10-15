@@ -415,8 +415,8 @@ export const createProject = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     await requirePermission(context.userId, "projects.manage");
     const sql = await getSql();
-    const profile = await loadProfile(context.userId);
-    const orgId = (await requireProfile(context.userId)).organizationId;
+    const profile = await requireProfile(context.userId);
+    const orgId = profile.organizationId;
     
     await sql`insert into projects (user_id, name, budget, deadline, status, organization_id)
       values (${context.userId}, ${data.name}, ${data.budget}, ${data.deadline}, ${data.status}, ${orgId})`;
@@ -891,20 +891,33 @@ export const listHealth = createServerFn({ method: "GET" })
     const profile = await requireProfile(context.userId);
     const isHr = profile.role === "HR";
     const isEhs = can(profile, "ehs.manage");
+    
     const rows = await sql<{
-      id: number; fitness: string; temperature: string | number | null; notes: string | null;
-      user_id: string; user_name: string; organization_id: string | null; created_at: string; updated_at: string;
+      id: number;
+      fitness: string;
+      temperature: string | number | null;
+      notes: string | null;
+      user_id: string;
+      user_name: string;
+      organization_id: string | null;
+      created_at: string;
+      updated_at: string;
     }>`select h.id, h.fitness, h.temperature, h.notes, h.user_id, p.full_name as user_name, h.organization_id, h.created_at, h.updated_at
       from health_declarations h join profiles p on p.user_id = h.user_id
       where h.organization_id = ${profile.organizationId}
         and (${isHr} or (${isEhs} and h.created_at::date = current_date) or h.user_id = ${context.userId})
       order by h.created_at desc limit 500`;
+      
     return rows.map((r): HealthRow => ({
-      id: r.id, fitness: r.fitness,
+      id: r.id,
+      fitness: r.fitness,
       temperature: isHr || r.user_id === context.userId ? (r.temperature == null ? null : Number(r.temperature)) : null,
       notes: isHr || r.user_id === context.userId ? r.notes : null,
-      userId: r.user_id, userName: r.user_name, organizationId: r.organization_id,
-      createdAt: r.created_at, updatedAt: r.updated_at || r.created_at,
+      userId: r.user_id,
+      userName: r.user_name,
+      organizationId: r.organization_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at || r.created_at,
     }));
   });
 
@@ -917,7 +930,9 @@ export const listTodayHealthStatus = createServerFn({ method: "GET" })
     const profile = await requireProfile(context.userId);
     if (!can(profile, "ehs.manage") && !can(profile, "hr.manage")) throw new Error("Only EHS or company HR can view employee health status");
     const rows = await sql<{ user_id: string; full_name: string; fitness: string | null; declared_at: string | null }>`
-      select p.user_id, p.full_name, h.fitness, h.created_at::text as declared_at
+      select p.user_id, p.full_name,
+        h.fitness,
+        h.created_at::text as declared_at
       from profiles p
       left join lateral (
         select fitness, created_at from health_declarations
@@ -936,9 +951,27 @@ export const submitHealth = createServerFn({ method: "POST" })
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
     const orgId = (await requireProfile(context.userId)).organizationId;
-    
-    await sql`insert into health_declarations (user_id, fitness, temperature, notes, organization_id)
-      values (${context.userId}, ${data.fitness}, ${data.temperature}, ${data.notes ?? null}, ${orgId})`;
+    if (!orgId) throw new Error("This account is not linked to a company");
+
+    const rows = await sql<{ id: number }>`insert into health_declarations (user_id, fitness, temperature, notes, organization_id)
+      values (${context.userId}, ${data.fitness}, ${data.temperature}, ${data.notes ?? null}, ${orgId}) returning id`;
+
+    if (data.fitness !== "Fit for Duty") {
+      const recipients = [...new Set([
+        ...(await usersWithPermission(sql, orgId, "hr.manage")),
+        ...(await usersWithPermission(sql, orgId, "ehs.manage")),
+      ])].filter((id) => id !== context.userId);
+      await notify(sql, {
+        organizationId: orgId,
+        userIds: recipients,
+        title: `Health status: ${data.fitness}`,
+        message: `${getUserFullName(profile)} reported ${data.fitness.toLowerCase()} for duty today. Please follow up with the employee.`,
+        type: "health",
+        link: can(profile, "hr.manage") ? "/hr" : "/ehs",
+        entityType: "health_declaration",
+        entityId: rows[0]?.id,
+      });
+    }
   });
 
 export const getHealthSummary = createServerFn({ method: "GET" })
@@ -950,12 +983,13 @@ export const getHealthSummary = createServerFn({ method: "GET" })
     const isEhs = can(profile, "ehs.manage");
     if (!isHr && !isEhs) throw new Error("Only HR or EHS can view employee health summaries");
     const { clause } = getOrgWhereClause(profile, context.userId, isHr ? "hr.manage" : "ehs.manage");
+    
     const rows = await sql<{
       total: number;
       fit: number;
       restricted: number;
       unfit: number;
-    }>`select
+    }>`select 
       count(*) as total,
       sum(case when fitness = 'Fit for Duty' then 1 else 0 end) as fit,
       sum(case when fitness = 'Restricted' then 1 else 0 end) as restricted,
@@ -963,6 +997,7 @@ export const getHealthSummary = createServerFn({ method: "GET" })
     from health_declarations
     where ${clause}
     ${isEhs && !isHr ? sqlFragment("and created_at::date = current_date") : sqlFragment("and created_at >= now() - interval '7 days'")}`;
+    
     return rows[0] || { total: 0, fit: 0, restricted: 0, unfit: 0 };
   });
 

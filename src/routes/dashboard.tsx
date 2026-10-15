@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, ClipboardCheck, ClockIcon, EyeOff, FileText, HardHat, Send, Wallet, AlertTriangle, Flag } from "lucide-react";
+import { Activity, Bell, CalendarDays, Car, ChevronDown, ClipboardCheck, ClockIcon, EyeOff, FileText, HardHat, Send, Wallet, AlertTriangle, Flag, ShieldCheck } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { AppShell, Field, Panel } from "@/components/app-shell";
 import { EmptyState, Kpi, Notice, StatusBadge, btnGhost, btnPrimary, inputCls, Modal } from "@/components/ui-kit";
@@ -9,9 +10,10 @@ import { AfterHoursVehiclePanel } from "@/components/requests/after-hours-vehicl
 import { AttendanceCard, LeaveDialog, MyLeave, SiteReportDialog } from "@/components/daily/daily";
 import { useOrgBrand } from "@/components/workspace-bar";
 import { can } from "@/lib/ehs/access";
+import { getMyAttendance } from "@/lib/ehs/daily";
 import { cancelFinanceRequest, createFinanceRequest, listFinanceRequests, listProjectsForRequests, type FinanceRequest } from "@/lib/ehs/finance";
 import { createNcr, recordWorkHours, reportAnonymousHazard } from "@/lib/ehs/hse";
-import { listAnnouncements, listHealth, reportIncident, submitHealth, type Announcement, type HealthRow, type Profile } from "@/lib/ehs/server";
+import { listAnnouncements, listHealth, listNotifications, reportIncident, submitHealth, type Announcement, type AppNotification, type HealthRow, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { emailDeliveryNote } from "@/lib/ui/email-status";
@@ -31,6 +33,23 @@ function DashboardPage() {
 
 type Project = { id: number; name: string };
 
+type WorkFeatureKey = "vehicle" | "attendance" | "health" | "leave" | "notices" | "safety";
+type WorkFeatureConfig = { key: WorkFeatureKey; title: string; Icon: LucideIcon; unread: number; detail?: string };
+
+function WorkFeatureRail({ features, expanded, onToggle }: { features: WorkFeatureConfig[]; expanded: Record<WorkFeatureKey, boolean>; onToggle: (key: WorkFeatureKey) => void }) {
+  return <div className="flex flex-wrap gap-2" aria-label="My work cards">
+    {features.map(({ key, title, Icon, unread, detail }) => (
+      <button key={key} type="button" onClick={() => onToggle(key)} aria-expanded={expanded[key]} aria-label={`${expanded[key] ? "Collapse" : "Open"} ${title}${unread ? `, ${unread} notifications` : ""}`} className={`relative inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors ${expanded[key] ? "border-accent bg-accent/10 text-fg" : "border-border bg-bg-elevated text-fg-muted hover:bg-bg-subtle hover:text-fg"}`}>
+        <Icon className="size-4 shrink-0" />
+        <span>{title}</span>
+        {detail && !expanded[key] ? <span className="hidden text-xs font-normal text-fg-subtle sm:inline">{detail}</span> : null}
+        {unread > 0 ? <span className="grid min-w-5 place-items-center rounded-full bg-danger px-1 text-[10px] font-bold leading-5 text-white">{unread > 99 ? "99+" : unread}</span> : null}
+        {expanded[key] ? <ChevronDown className="size-3.5" /> : null}
+      </button>
+    ))}
+  </div>;
+}
+
 function MyWork({ profile }: { profile: Profile }) {
   const { request: requestId } = Route.useSearch();
   const brand = useOrgBrand();
@@ -46,6 +65,12 @@ function MyWork({ profile }: { profile: Profile }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [health, setHealth] = useState<HealthRow[]>([]);
   const [notices, setNotices] = useState<Announcement[]>([]);
+  const [attendance, setAttendance] = useState<Awaited<ReturnType<typeof getMyAttendance>> | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [vehicleDone, setVehicleDone] = useState(false);
+  const [safetyDone, setSafetyDone] = useState(false);
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
+  const [expandedFeatures, setExpandedFeatures] = useState<Record<WorkFeatureKey, boolean>>({ vehicle: true, attendance: true, health: true, leave: true, notices: true, safety: true });
   const [msg, setMsg] = useState("");
   const [detail, setDetail] = useState<FinanceRequest | null>(null);
   const [dialog, setDialog] = useState<null | "request" | "hazard" | "hours" | "ncr" | "leave" | "report">(null);
@@ -53,17 +78,56 @@ function MyWork({ profile }: { profile: Profile }) {
   const openedLinkedRequest = useRef<number | null>(null);
 
   const load = useCallback(async () => {
-    const [r, h, n] = await Promise.all([
+    const [r, h, n, a, alerts] = await Promise.all([
       canRequestMoney ? listFinanceRequests({ data: { mine: true } }).catch(() => []) : Promise.resolve([]),
       listHealth().catch(() => []),
       listAnnouncements().catch(() => []),
+      getMyAttendance().catch(() => null),
+      listNotifications().catch(() => []),
     ]);
     setRequests(r);
     setHealth(h);
     setNotices(n.slice(0, 4));
+    setAttendance(a);
+    setNotifications(alerts);
+    setDashboardLoaded(true);
     setDetail((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
   }, [canRequestMoney]);
   useLive(load, 20000);
+
+  const todayHealth = health.find((row) => new Date(row.createdAt).toDateString() === new Date().toDateString());
+  const unreadCount = (...types: string[]) => notifications.filter((item) => !item.read_at && types.includes(item.type)).length;
+  const featureStorageKey = (key: WorkFeatureKey) => `smarthub:mywork:${profile.userId}:${todayIso()}:${key}`;
+  const toggleFeature = (key: WorkFeatureKey) => setExpandedFeatures((current) => {
+    const next = { ...current, [key]: !current[key] };
+    try { localStorage.setItem(featureStorageKey(key), next[key] ? "open" : "closed"); } catch { /* private browsing */ }
+    return next;
+  });
+  const collapseFeature = (key: WorkFeatureKey) => setExpandedFeatures((current) => {
+    try { localStorage.setItem(featureStorageKey(key), "closed"); } catch { /* private browsing */ }
+    return { ...current, [key]: false };
+  });
+  useEffect(() => {
+    try {
+      const saved = Object.fromEntries(([
+        "vehicle", "attendance", "health", "leave", "notices", "safety",
+      ] as WorkFeatureKey[]).flatMap((key) => {
+        const value = localStorage.getItem(featureStorageKey(key));
+        return value === null ? [] : [[key, value === "open"]];
+      })) as Partial<Record<WorkFeatureKey, boolean>>;
+      setExpandedFeatures((current) => ({ ...current, ...saved }));
+    } catch { /* private browsing */ }
+  }, [profile.userId]);
+  useEffect(() => {
+    const collapseIfUnchanged = (key: WorkFeatureKey, completed: boolean) => {
+      if (!completed) return;
+      try { if (localStorage.getItem(featureStorageKey(key)) !== null) return; } catch { /* private browsing */ }
+      setExpandedFeatures((current) => ({ ...current, [key]: false }));
+    };
+    collapseIfUnchanged("attendance", Boolean(attendance?.today));
+    collapseIfUnchanged("health", Boolean(todayHealth));
+    collapseIfUnchanged("notices", dashboardLoaded && notices.length === 0);
+  }, [attendance?.today, todayHealth, dashboardLoaded, notices.length, profile.userId]);
   useEffect(() => {
     if (!requestId || requestId === openedLinkedRequest.current) return;
     const request = requests.find((item) => item.id === requestId);
@@ -79,6 +143,19 @@ function MyWork({ profile }: { profile: Profile }) {
   const open = requests.filter((r) => ["Submitted", "Under Review", "Approved"].includes(r.status));
   const paidThisMonth = requests.filter((r) => r.status === "Paid" && r.paidAt && new Date(r.paidAt).getMonth() === new Date().getMonth()).reduce((s, r) => s + r.amount, 0);
   const currency = brand?.currency ?? "TZS";
+  const attendanceDetail = attendance?.today
+    ? attendance.today.checkOut
+      ? `In ${new Date(attendance.today.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · out ${new Date(attendance.today.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+      : `Checked in ${new Date(attendance.today.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · checkout pending`
+    : "Not checked in";
+  const workFeatures: WorkFeatureConfig[] = [
+    ...(canRequest ? [{ key: "vehicle" as const, title: "Vehicle", Icon: Car, unread: unreadCount("after_hours_vehicle"), detail: vehicleDone ? "Plan saved" : "Today" }] : []),
+    { key: "attendance", title: "Attendance", Icon: ClipboardCheck, unread: unreadCount("attendance"), detail: attendanceDetail },
+    { key: "health", title: "Fitness", Icon: Activity, unread: unreadCount("health"), detail: todayHealth?.fitness ?? "Not declared" },
+    { key: "leave", title: "Leave", Icon: CalendarDays, unread: unreadCount("leave"), detail: "Requests and decisions" },
+    { key: "notices", title: "Notice board", Icon: Bell, unread: unreadCount("message"), detail: notices.length ? `${notices.length} updates` : "No updates" },
+    { key: "safety", title: "Safety & wellbeing", Icon: ShieldCheck, unread: unreadCount("safety_observation", "wellbeing", "incident"), detail: safetyDone ? "Updated" : "Reports and challenges" },
+  ];
 
   return (
     <AppShell title={`Hello, ${profile.fullName.split(" ")[0] || "team"}`} subtitle="Your requests, daily declarations and site reporting in one place." role={profile.role}>
@@ -127,12 +204,13 @@ function MyWork({ profile }: { profile: Profile }) {
           </div>
         ) : null}
 
-        <div className={`space-y-6 ${canRequestMoney ? "lg:col-span-2" : "lg:col-span-5"}`}>
-          {canRequest ? <AfterHoursVehiclePanel profile={profile} mode="mine" /> : null}
-          <AttendanceCard projects={projects} />
-          <HealthCard onSaved={(m) => { setMsg(m); void load(); }} />
-          <MyLeave userId={profile.userId} refreshKey={leaveKey} />
-          <Panel title="Notice board">
+        <div className={`space-y-5 ${canRequestMoney ? "lg:col-span-2" : "lg:col-span-5"}`}>
+          <WorkFeatureRail features={workFeatures} expanded={expandedFeatures} onToggle={toggleFeature} />
+          {canRequest && expandedFeatures.vehicle ? <AfterHoursVehiclePanel profile={profile} mode="mine" onCompleted={() => { setVehicleDone(true); collapseFeature("vehicle"); }} /> : null}
+          {expandedFeatures.attendance ? <AttendanceCard projects={projects} onActionComplete={() => collapseFeature("attendance")} /> : null}
+          {expandedFeatures.health ? <HealthCard current={todayHealth} onSaved={(m) => { setMsg(m); if (m === "Declaration saved") collapseFeature("health"); void load(); }} /> : null}
+          {expandedFeatures.leave ? <MyLeave userId={profile.userId} refreshKey={leaveKey} /> : null}
+          {expandedFeatures.notices ? <Panel title="Notice board">
             {notices.length === 0 ? <p className="text-sm text-fg-muted">No announcements.</p> : (
               <ul className="space-y-3">
                 {notices.map((n) => (
@@ -140,17 +218,16 @@ function MyWork({ profile }: { profile: Profile }) {
                 ))}
               </ul>
             )}
-          </Panel>
+          </Panel> : null}
+          {expandedFeatures.safety ? <SafetyHubWorkspace profile={profile} compact onActionComplete={() => { setSafetyDone(true); collapseFeature("safety"); }} /> : null}
         </div>
       </div>
-
-      <section className="mt-6"><SafetyHubWorkspace profile={profile} compact /></section>
 
       {dialog === "request" && canRequestMoney ? (
         <RequestDialog projects={projects} limit={brand?.managerApprovalLimit ?? 0} currency={currency} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); void load(); }} />
       ) : null}
       {dialog === "hazard" ? <HazardDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
-      {dialog === "leave" ? <LeaveDialog onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); setLeaveKey((k) => k + 1); }} /> : null}
+      {dialog === "leave" ? <LeaveDialog onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); setLeaveKey((k) => k + 1); collapseFeature("leave"); }} /> : null}
       {dialog === "report" ? <SiteReportDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
       {dialog === "hours" ? <HoursDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
       {dialog === "ncr" ? <NcrDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
@@ -180,22 +257,38 @@ function MyWork({ profile }: { profile: Profile }) {
   );
 }
 
-function HealthCard({ onSaved }: { onSaved: (m: string) => void }) {
-  const [fitness, setFitness] = useState<"Fit for Duty" | "Restricted" | "Unfit">("Fit for Duty");
-  const [temp, setTemp] = useState("36.6");
+function HealthCard({ current, onSaved }: { current?: HealthRow; onSaved: (m: string) => void }) {
+  const [fitness, setFitness] = useState<"Fit for Duty" | "Restricted" | "Unfit">((current?.fitness as "Fit for Duty" | "Restricted" | "Unfit") ?? "Fit for Duty");
+  const [temp, setTemp] = useState(current?.temperature == null ? "36.6" : String(current.temperature));
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(!current);
+  const [savedFitness, setSavedFitness] = useState(current?.fitness ?? "");
+  useEffect(() => {
+    if (current) {
+      setFitness(current.fitness as typeof fitness);
+      setTemp(current.temperature == null ? "36.6" : String(current.temperature));
+      setSavedFitness(current.fitness);
+      setEditing(false);
+    }
+  }, [current?.id]);
   const hint = useMemo(
     () => ({ "Fit for Duty": "You are fit to proceed with your duties.", Restricted: "You are restricted. Tell your supervisor.", Unfit: "Do not start work. Tell your supervisor now." })[fitness],
     [fitness],
   );
   return (
     <Panel title="Daily health declaration">
+      {savedFitness && !editing ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><StatusBadge status={savedFitness} /><p className="mt-2 text-sm text-fg-muted">Your fitness status is saved for today.</p></div>
+          <button type="button" className={btnGhost} onClick={() => setEditing(true)}>Update status</button>
+        </div>
+      ) : (
       <form
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
-          try { await submitHealth({ data: { fitness, temperature: Number(temp), notes: "" } }); onSaved("Declaration saved"); } catch (err) { onSaved(errorMessage(err, "Could not save the declaration")); } finally { setBusy(false); }
+          try { await submitHealth({ data: { fitness, temperature: Number(temp), notes: "" } }); setSavedFitness(fitness); setEditing(false); onSaved("Declaration saved"); } catch (err) { onSaved(errorMessage(err, "Could not save the declaration")); } finally { setBusy(false); }
         }}
       >
         <Field label="Fitness">
@@ -207,6 +300,7 @@ function HealthCard({ onSaved }: { onSaved: (m: string) => void }) {
         <Field label="Temperature (°C)"><input value={temp} onChange={(e) => setTemp(e.target.value)} inputMode="decimal" className={inputCls} /></Field>
         <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}><ClipboardCheck className="size-4" /> Save declaration</button>
       </form>
+      )}
     </Panel>
   );
 }

@@ -25,6 +25,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RootRouteImport } from './routes/root'
 import { Route as TeamleaderRouteImport } from './routes/teamleader'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiCronMissingCheckoutsRouteImport } from './routes/api/cron/missing-checkouts'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -106,6 +107,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCronMissingCheckoutsRoute = ApiCronMissingCheckoutsRouteImport.update({
+  id: '/api/cron/missing-checkouts',
+  path: '/api/cron/missing-checkouts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/missing-checkouts': typeof ApiCronMissingCheckoutsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/missing-checkouts': typeof ApiCronMissingCheckoutsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/cron/missing-checkouts': typeof ApiCronMissingCheckoutsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -181,6 +190,7 @@ export interface FileRouteTypes {
     | '/root'
     | '/teamleader'
     | '/api/auth/$'
+    | '/api/cron/missing-checkouts'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/root'
     | '/teamleader'
     | '/api/auth/$'
+    | '/api/cron/missing-checkouts'
   id:
     | '__root__'
     | '/'
@@ -217,6 +228,7 @@ export interface FileRouteTypes {
     | '/root'
     | '/teamleader'
     | '/api/auth/$'
+    | '/api/cron/missing-checkouts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,6 +248,7 @@ export interface RootRouteChildren {
   RootRoute: typeof RootRoute
   TeamleaderRoute: typeof TeamleaderRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiCronMissingCheckoutsRoute: typeof ApiCronMissingCheckoutsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/cron/missing-checkouts': {
+      id: '/api/cron/missing-checkouts'
+      path: '/api/cron/missing-checkouts'
+      fullPath: '/api/cron/missing-checkouts'
+      preLoaderRoute: typeof ApiCronMissingCheckoutsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -372,6 +392,7 @@ const rootRouteChildren: RootRouteChildren = {
   RootRoute: RootRoute,
   TeamleaderRoute: TeamleaderRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiCronMissingCheckoutsRoute: ApiCronMissingCheckoutsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

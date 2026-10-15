@@ -98,8 +98,11 @@ export const requestLeave = createServerFn({ method: "POST" })
     const rows = await sql<{ id: number; days: number }>`insert into leave_requests (organization_id, user_id, leave_type, start_date, end_date, reason)
       values (${profile.organizationId}, ${context.userId}, ${data.leaveType}, ${data.startDate}::date, ${data.endDate}::date, ${data.reason ?? null}) returning id, days`;
     const approvers = (await usersWithPermission(sql, profile.organizationId, "leave.approve")).filter((u) => u !== context.userId);
+    if (data.leaveType === "Sick") {
+      approvers.push(...(await usersWithPermission(sql, profile.organizationId, "ehs.manage")).filter((u) => u !== context.userId));
+    }
     await notify(sql, {
-      organizationId: profile.organizationId, userIds: approvers, title: "Leave request",
+      organizationId: profile.organizationId, userIds: [...new Set(approvers)], title: "Leave request",
       message: `${getUserFullName(profile)} asked for ${rows[0]!.days} day(s) of ${data.leaveType.toLowerCase()} leave from ${data.startDate}.`,
       type: "leave", link: "/hr", entityType: "leave", entityId: rows[0]!.id,
     });

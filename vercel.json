@@ -2,6 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "env -u NPM_CONFIG_CACHE_DIR -u npm_config_cache_dir -u npm_config_cache-dir npm install",
   "buildCommand": "env -u NPM_CONFIG_CACHE_DIR -u npm_config_cache_dir -u npm_config_cache-dir npm run build",
+  "crons": [
+    {
+      "path": "/api/cron/missing-checkouts",
+      "schedule": "0 15 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

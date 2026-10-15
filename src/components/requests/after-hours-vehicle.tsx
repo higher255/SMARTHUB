@@ -48,17 +48,31 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mode: "mine" | "review" }) {
+export function AfterHoursVehiclePanel({ profile, mode, onCompleted }: { profile: Profile; mode: "mine" | "review"; onCompleted?: () => void }) {
   const mayRequest = can(profile, "finance.request");
   const mayReview = can(profile, "fleet.manage") || can(profile, "ehs.manage");
   const [requests, setRequests] = useState<AfterHoursVehicleRequest[]>([]);
-  const [vehiclePlan, setVehiclePlan] = useState<"yes" | "no" | null>(null);
+  const [vehiclePlan, setVehiclePlan] = useState<"yes" | "no" | null>(() => {
+    if (mode !== "mine" || typeof window === "undefined") return null;
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam" }).format(new Date());
+    try {
+      const saved = localStorage.getItem(`smarthub:vehicle-plan:${profile.userId}:${day}`);
+      return saved === "yes" || saved === "no" ? saved : null;
+    } catch { return null; }
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState<AfterHoursVehicleRequest | null>(null);
   const [rejectionNote, setRejectionNote] = useState("");
+  const recordPlan = (plan: "yes" | "no") => {
+    setVehiclePlan(plan);
+    try {
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam" }).format(new Date());
+      localStorage.setItem(`smarthub:vehicle-plan:${profile.userId}:${day}`, plan);
+    } catch { /* private browsing */ }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -100,7 +114,7 @@ export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mo
             <p className="max-w-xl text-sm text-fg-muted">Are you planning to use a company vehicle today outside your normal working hours? Request approval before the trip.</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" aria-pressed={vehiclePlan === "yes"} className={vehiclePlan === "yes" ? btnPrimary : btnGhost} onClick={() => { setVehiclePlan("yes"); setDialogOpen(true); }}><Car className="size-4" /> Yes, request vehicle use</button>
-              <button type="button" aria-pressed={vehiclePlan === "no"} className={vehiclePlan === "no" ? btnPrimary : btnGhost} onClick={() => { setVehiclePlan("no"); setDialogOpen(false); }}>No vehicle needed</button>
+              <button type="button" aria-pressed={vehiclePlan === "no"} className={vehiclePlan === "no" ? btnPrimary : btnGhost} onClick={() => { recordPlan("no"); setDialogOpen(false); onCompleted?.(); }}>No vehicle needed</button>
             </div>
             {vehiclePlan === "no" ? <p className="text-sm text-fg-muted">Noted. No vehicle request is needed today.</p> : null}
           </div>
@@ -156,7 +170,7 @@ export function AfterHoursVehiclePanel({ profile, mode }: { profile: Profile; mo
         )}
       </Panel>
 
-      {dialogOpen ? <AfterHoursRequestForm profile={profile} onClose={() => setDialogOpen(false)} onDone={(text) => { setVehiclePlan("yes"); setDialogOpen(false); setMessage(text); void load(); }} /> : null}
+      {dialogOpen ? <AfterHoursRequestForm profile={profile} onClose={() => { setVehiclePlan(null); setDialogOpen(false); }} onDone={(text) => { recordPlan("yes"); setDialogOpen(false); setMessage(text); onCompleted?.(); void load(); }} /> : null}
       {rejecting ? (
         <Modal title="Reject after-hours request" onClose={() => { setRejecting(null); setRejectionNote(""); }}>
           <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void decide(rejecting, "Rejected", rejectionNote); }}>
