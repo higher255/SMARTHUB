@@ -136,6 +136,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "finance.request", "You cannot submit finance requests");
+    if (profile.role === "Finance") throw new Error("Finance users receive and process requests in the Finance workspace");
     const project = data.projectId == null ? [] : await sql<{ id: number; name: string; user_id: string }>`
       select id, name, user_id from projects where id = ${data.projectId} and organization_id = ${profile.organizationId}`;
     if (data.projectId != null && !project[0]) throw new Error("Choose a project from your company");

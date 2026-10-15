@@ -27,6 +27,7 @@ type Project = { id: number; name: string };
 function MyWork({ profile }: { profile: Profile }) {
   const brand = useOrgBrand();
   const canRequest = can(profile, "finance.request");
+  const canRequestMoney = canRequest && profile.role !== "Finance";
   const canHours = can(profile, "hours.record");
   const canNcr = can(profile, "ncr.raise");
 
@@ -41,7 +42,7 @@ function MyWork({ profile }: { profile: Profile }) {
 
   const load = useCallback(async () => {
     const [r, h, n] = await Promise.all([
-      canRequest ? listFinanceRequests({ data: { mine: true } }).catch(() => []) : Promise.resolve([]),
+      canRequestMoney ? listFinanceRequests({ data: { mine: true } }).catch(() => []) : Promise.resolve([]),
       listHealth().catch(() => []),
       listAnnouncements().catch(() => []),
     ]);
@@ -49,7 +50,7 @@ function MyWork({ profile }: { profile: Profile }) {
     setHealth(h);
     setNotices(n.slice(0, 4));
     setDetail((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
-  }, [canRequest]);
+  }, [canRequestMoney]);
   useLive(load, 20000);
   useLive(async () => {
     if (canRequest) setProjects(await listProjectsForRequests().catch(() => []));
@@ -64,13 +65,13 @@ function MyWork({ profile }: { profile: Profile }) {
       <Notice msg={msg} onClose={() => setMsg("")} />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {canRequest ? <Kpi label="Open requests" value={open.length} hint={open.length ? formatMoney(open.reduce((s, r) => s + r.amount, 0), currency) : "Nothing waiting"} /> : null}
-        {canRequest ? <Kpi label="Paid this month" value={formatMoney(paidThisMonth, currency)} tone="ok" /> : null}
+        {canRequestMoney ? <Kpi label="Open requests" value={open.length} hint={open.length ? formatMoney(open.reduce((s, r) => s + r.amount, 0), currency) : "Nothing waiting"} /> : null}
+        {canRequestMoney ? <Kpi label="Paid this month" value={formatMoney(paidThisMonth, currency)} tone="ok" /> : null}
         <Kpi label="Today's fitness" value={health[0] && new Date(health[0].createdAt).toDateString() === new Date().toDateString() ? health[0].fitness : "Not declared"} tone={health[0]?.fitness === "Unfit" ? "danger" : undefined} />
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
-        {canRequest ? <button type="button" className={btnPrimary} onClick={() => setDialog("request")}><Wallet className="size-4" /> Request money</button> : null}
+        {canRequestMoney ? <button type="button" className={btnPrimary} onClick={() => setDialog("request")}><Wallet className="size-4" /> Request money</button> : null}
         <button type="button" className={btnGhost} onClick={() => setDialog("hazard")}><AlertTriangle className="size-4" /> Report hazard or incident</button>
         <button type="button" className={btnGhost} onClick={() => setDialog("leave")}><CalendarDays className="size-4" /> Request leave</button>
         {canHours ? <button type="button" className={btnGhost} onClick={() => setDialog("report")}><FileText className="size-4" /> Daily site report</button> : null}
@@ -79,7 +80,7 @@ function MyWork({ profile }: { profile: Profile }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
-        {canRequest ? (
+        {canRequestMoney ? (
           <div className="lg:col-span-3">
             <Panel title="My requests">
               {requests.length === 0 ? (
@@ -103,11 +104,11 @@ function MyWork({ profile }: { profile: Profile }) {
                 </ul>
               )}
             </Panel>
-            <div className="mt-6"><AfterHoursVehiclePanel profile={profile} mode="mine" /></div>
           </div>
         ) : null}
 
-        <div className={`space-y-6 ${canRequest ? "lg:col-span-2" : "lg:col-span-5"}`}>
+        <div className={`space-y-6 ${canRequestMoney ? "lg:col-span-2" : "lg:col-span-5"}`}>
+          {canRequest ? <AfterHoursVehiclePanel profile={profile} mode="mine" /> : null}
           <AttendanceCard projects={projects} />
           <HealthCard onSaved={(m) => { setMsg(m); void load(); }} />
           <MyLeave userId={profile.userId} refreshKey={leaveKey} />
@@ -125,7 +126,7 @@ function MyWork({ profile }: { profile: Profile }) {
 
       <section className="mt-6"><SafetyHubWorkspace profile={profile} compact /></section>
 
-      {dialog === "request" ? (
+      {dialog === "request" && canRequestMoney ? (
         <RequestDialog projects={projects} limit={brand?.managerApprovalLimit ?? 0} currency={currency} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); void load(); }} />
       ) : null}
       {dialog === "hazard" ? <HazardDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
