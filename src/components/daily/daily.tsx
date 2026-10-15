@@ -26,7 +26,7 @@ export function DailyFlowBanner({ profile }: { profile: Profile }) {
   useLive(load, 60000);
   const checkedIn = Boolean(attendance?.today && !attendance.today.checkOut);
   const today = darTodayIso();
-  const declared = health.some((row) => row.userId === profile.userId && row.createdAt.slice(0, 10) === today);
+  const declared = health.some((row) => row.userId === profile.userId && darDateKey(row.createdAt) === today);
   if (profile.role === "Client") return null;
   return (
     <div className="border-b border-border bg-bg-subtle/70 px-4 py-2.5 sm:px-6">
@@ -193,6 +193,14 @@ function isBeforeDarTime(value: string, hour: number, minute: number) {
 }
 
 const darTodayIso = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
+function darDateKey(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date);
+}
 
 /** Current HR view: only employees with an open attendance session are listed. */
 export function MyStaffsBoard() {
