@@ -945,23 +945,24 @@ export const getHealthSummary = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const profile = await loadProfile(context.userId);
-    const { clause } = getOrgWhereClause(profile, context.userId);
-    
+    const profile = await requireProfile(context.userId);
+    const isHr = profile.role === "HR";
+    const isEhs = can(profile, "ehs.manage");
+    if (!isHr && !isEhs) throw new Error("Only HR or EHS can view employee health summaries");
+    const { clause } = getOrgWhereClause(profile, context.userId, isHr ? "hr.manage" : "ehs.manage");
     const rows = await sql<{
       total: number;
       fit: number;
       restricted: number;
       unfit: number;
-    }>`select 
+    }>`select
       count(*) as total,
       sum(case when fitness = 'Fit for Duty' then 1 else 0 end) as fit,
       sum(case when fitness = 'Restricted' then 1 else 0 end) as restricted,
       sum(case when fitness = 'Unfit' then 1 else 0 end) as unfit
     from health_declarations
     where ${clause}
-    and created_at >= now() - interval '7 days'`;
-    
+    ${isEhs && !isHr ? sqlFragment("and created_at::date = current_date") : sqlFragment("and created_at >= now() - interval '7 days'")}`;
     return rows[0] || { total: 0, fit: 0, restricted: 0, unfit: 0 };
   });
 
@@ -1855,6 +1856,8 @@ export const getDashboardStats = createServerFn({ method: "GET" })
     const sql = await getSql();
     const profile = await loadProfile(context.userId);
     const { clause } = getOrgWhereClause(profile, context.userId);
+    const { clause: healthClause } = getOrgWhereClause(profile, context.userId, profile?.role === "HR" ? "hr.manage" : "ehs.manage");
+    const healthDayFilter = profile && can(profile, "ehs.manage") && profile.role !== "HR" ? sqlFragment("and created_at::date = current_date") : sqlFragment("");
     
     const [incidentStats, projectStats, healthStats, vehicleStats, permitStats, capaStats] = await Promise.all([
       sql<{ total: number; open: number; critical: number }>`
@@ -1878,7 +1881,7 @@ export const getDashboardStats = createServerFn({ method: "GET" })
           COUNT(*) as total,
           SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 ELSE 0 END) as today
         FROM health_declarations 
-        WHERE ${clause}
+        WHERE ${healthClause} ${healthDayFilter}
       `,
       sql<{ total: number; active: number; maintenance: number }>`
         SELECT 
@@ -2325,14 +2328,16 @@ export const getTeamPerformance = createServerFn({ method: "GET" })
       where ${clause}
       group by assignee`;
     
-    const latestHealth = await sql<{
+    const canViewHealth = profile?.role === "HR" || can(profile, "ehs.manage");
+    const latestHealth = canViewHealth ? await sql<{
       user_id: string;
       fitness: string;
       created_at: string;
     }>`select distinct on (user_id) user_id, fitness, created_at
       from health_declarations
-      where ${clause}
-      order by user_id, created_at desc`;
+      where organization_id = ${profile?.organizationId}
+        ${profile?.role === "HR" ? sqlFragment("") : sqlFragment("and created_at::date = current_date")}
+      order by user_id, created_at desc` : [];
     
     const incidentCounts = await sql<{
       user_id: string;
@@ -2450,14 +2455,16 @@ export const getProjectManagerReport = createServerFn({ method: "GET" })
       where ${clause} ${dateFilter}
       order by created_at desc`;
     
-    const health = await sql<{
+    const healthVisible = profile?.role === "HR" || can(profile, "ehs.manage");
+    const health = healthVisible ? await sql<{
       user_id: string;
       fitness: string;
       created_at: string;
     }>`select user_id, fitness, created_at
       from health_declarations
-      where ${clause} ${dateFilter}
-      order by created_at desc`;
+      where organization_id = ${profile?.organizationId}
+        ${profile?.role === "HR" ? dateFilter : can(profile, "ehs.manage") ? sqlFragment("and created_at::date = current_date") : sqlFragment("and false")}
+      order by created_at desc` : [];
     
     const totalBudget = projects.reduce((acc, p) => acc + Number(p.budget || 0), 0);
     const completedProjects = projects.filter(p => p.status === 'Completed').length;
