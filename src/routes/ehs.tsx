@@ -7,9 +7,9 @@ import { HseWorkspace } from "@/components/hse/hse-workspace";
 import { HealthStatusBoard } from "@/components/daily/daily";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
-import type { EhsRole } from "@/lib/ehs/roles";
+import { ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
+import { ASSIGNABLE_ROLES } from "@/lib/ehs/access";
 import { ThemeToggle } from "@/components/theme-provider";
-import { DEPARTMENTS } from "@/lib/ehs/roles";
 import {
   listHealth,
   listIncidents,
@@ -250,7 +250,6 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
     fullName: "",
     email: "",
     role: "Employee" as EhsRole,
-    department: "",
   });
 
   // Notification State
@@ -379,11 +378,10 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         email: newUser.email,
         fullName: newUser.fullName,
         role: newUser.role,
-        department: newUser.department || undefined,
       } });
       setMsg(result.inviteSent ? `User ${newUser.fullName} added. A password setup link was emailed to ${newUser.email}.` : `User ${newUser.fullName} added, but the invitation email could not be sent. Check email settings and send a password reset.`);
       setShowAddUserModal(false);
-      setNewUser({ fullName: "", email: "", role: "Employee", department: "" });
+      setNewUser({ fullName: "", email: "", role: "Employee" });
       await fetchData();
     } catch (err) {
       setMsg(errorMessage(err, "Failed to create user"));
@@ -1138,13 +1136,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                                   className="bg-bg border border-border rounded-lg text-xs px-3 py-1.5 text-fg focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-colors"
                                   disabled={busy}
                                 >
-                                  <option value="Admin">Admin</option>
-                                  <option value="EHS_Officer">EHS Administrator</option>
-                                  <option value="Manager">Manager</option>
-                                  <option value="Project_Manager">Project Manager</option>
-                                  <option value="Finance">Finance</option>
-                                  <option value="Driver">Driver</option>
-                                  <option value="Employee">Employee</option>
+                                  {ASSIGNABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
                                 </select>
                               )}
                             </td>
@@ -1494,7 +1486,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                 <div className="space-y-2">
                   <p className="text-xs text-fg-muted">We’ll email this user a secure link to choose their own password.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-fg">Role *</label>
                     <select
@@ -1503,28 +1495,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                       onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })}
                       className={inputClass}
                     >
-                      <option value="Admin">Admin</option>
-                      <option value="EHS_Officer">EHS Administrator</option>
-                      <option value="Manager">Manager</option>
-                      <option value="Project_Manager">Project Manager</option>
-                      <option value="Finance">Finance</option>
-                      <option value="Driver">Driver</option>
-                      <option value="Employee">Employee</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-fg">Department</label>
-                    <select
-                      value={newUser.department || ""}
-                      onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
-                      className={inputClass}
-                    >
-                      <option value="">None</option>
-                      {DEPARTMENTS.map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
+                      {ASSIGNABLE_ROLES.map((role) => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
                     </select>
                   </div>
                 </div>

@@ -222,14 +222,15 @@ export const requestLeave = createServerFn({ method: "POST" })
     const rows = await sql<{ id: number; days: number }>`insert into leave_requests (organization_id, user_id, leave_type, start_date, end_date, reason)
       values (${profile.organizationId}, ${context.userId}, ${data.leaveType}, ${data.startDate}::date, ${data.endDate}::date, ${data.reason ?? null}) returning id, days`;
     const approvers = (await usersWithPermission(sql, profile.organizationId, "leave.approve")).filter((u) => u !== context.userId);
-    if (data.leaveType === "Sick") {
-      approvers.push(...(await usersWithPermission(sql, profile.organizationId, "ehs.manage")).filter((u) => u !== context.userId));
-    }
     await notify(sql, {
-      organizationId: profile.organizationId, userIds: [...new Set(approvers)], title: "Leave request",
+      organizationId: profile.organizationId, userIds: approvers, title: "Leave request · approval needed",
       message: `${getUserFullName(profile)} asked for ${rows[0]!.days} day(s) of ${data.leaveType.toLowerCase()} leave from ${data.startDate}.`,
       type: "leave", link: "/hr", entityType: "leave", entityId: rows[0]!.id,
     });
+    if (data.leaveType === "Sick") {
+      const ehsReviewers = (await usersWithPermission(sql, profile.organizationId, "ehs.manage")).filter((userId) => userId !== context.userId && !approvers.includes(userId));
+      await notifyInApp(sql, { organizationId: profile.organizationId, userIds: ehsReviewers, title: "Sick leave notice", message: `${getUserFullName(profile)} requested sick leave starting ${data.startDate}.`, type: "leave", link: "/ehs", entityType: "leave", entityId: rows[0]!.id });
+    }
     return { id: rows[0]!.id, days: rows[0]!.days };
   });
 

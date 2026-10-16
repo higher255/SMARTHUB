@@ -14,6 +14,7 @@ import {
   isEhsAdmin,
   loadProfile,
   notify,
+  notifyInApp,
   orgClause,
   requirePermission,
   requirePlatformAdmin,
@@ -246,7 +247,7 @@ export const ensureMyProfile = createServerFn({ method: "POST" })
     const org = await sql<{ id: string }>`insert into organizations (name, slug) values ('My Company', 'my-company')
       on conflict (slug) do update set name = organizations.name returning id`;
     await sql`insert into profiles (user_id, full_name, role, department, organization_id, is_platform_admin)
-      values (${context.userId}, ${data.fullName || "Administrator"}, 'Admin', 'Management', ${org[0]!.id}, true)
+      values (${context.userId}, ${data.fullName || "Administrator"}, 'Admin', null, ${org[0]!.id}, true)
       on conflict (user_id) do nothing`;
     return (await loadProfile(context.userId))!;
   });
@@ -1156,7 +1157,7 @@ export const createTenant = createServerFn({ method: "POST" })
     const adminId = await provisionUser({
       // The admin chooses their own password from the one-time reset link sent below.
       email, password: randomBytes(32).toString("base64url"), fullName: data.adminName, role: "Admin",
-      department: "Management", organizationId: orgId,
+      organizationId: orgId,
     });
     let inviteSent = false;
     try {
@@ -1169,7 +1170,6 @@ export const createTenant = createServerFn({ method: "POST" })
       // Creation is durable; surface the mail issue so the owner can resend/reset safely.
       inviteSent = false;
     }
-    await notify(sql, { organizationId: orgId, userIds: [adminId], title: "Company administrator account created", message: `You have been created as an administrator for ${data.name}. Check your email for a secure link to choose your password, then sign in to Smart Hub.`, type: "account", link: "/login" });
     await audit(sql, orgId, context.userId, "create", "tenant", orgId, { name: data.name, adminId });
     return { success: true, organizationId: orgId, inviteSent };
   });
@@ -1487,11 +1487,7 @@ export const approvePermit = createServerFn({ method: "POST" })
   .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await loadProfile(context.userId);
-    
-    if (!isEhsAdmin(profile)) {
-      throw new Error("Only admins can approve permits");
-    }
+    const profile = await requirePermission(context.userId, "permits.approve", "Only the EHS team can approve permits");
     
     const { clause } = getOrgWhereClause(profile, context.userId);
     
@@ -2026,7 +2022,7 @@ async function provisionUser(input: {
     releaseNewUser(email);
   }
   await sql`insert into profiles (user_id, full_name, role, department, organization_id, permissions)
-    values (${userId}, ${input.fullName.trim()}, ${input.role}, ${input.department?.trim() || "Operations"}, ${input.organizationId}, ${input.permissions ?? []}::text[])
+    values (${userId}, ${input.fullName.trim()}, ${input.role}, ${input.department?.trim() || null}, ${input.organizationId}, ${input.permissions ?? []}::text[])
     on conflict (user_id) do nothing`;
   return userId;
 }
@@ -2099,8 +2095,7 @@ export const createUser = createServerFn({ method: "POST" })
     } catch {
       inviteSent = false;
     }
-    await notify(sql, { organizationId: profile.organizationId, userIds: [userId], title: "Your company account is ready", message: `Your ${ROLE_LABELS[data.role as EhsRole]} account has been created. Check your email for a secure link to choose your password, then sign in to Smart Hub.`, type: "account", link: "/login" });
-    await notify(sql, { organizationId: profile.organizationId, userIds: (await usersWithPermission(sql, profile.organizationId, "org.users")).filter((id) => id !== context.userId), title: "New team member added", message: `${data.fullName} joined as ${ROLE_LABELS[data.role as EhsRole]}.`, type: "account", link: "/admin" });
+    await notifyInApp(sql, { organizationId: profile.organizationId, userIds: (await usersWithPermission(sql, profile.organizationId, "org.users")).filter((id) => id !== context.userId), title: "New team member added", message: `${data.fullName} joined as ${ROLE_LABELS[data.role as EhsRole]}.`, type: "account", link: "/admin" });
     if (data.projectId) {
       await sql`insert into project_members (project_id, user_id, role, status, invited_by)
         select ${data.projectId}, ${userId}, ${data.role}, 'Pending', ${context.userId}

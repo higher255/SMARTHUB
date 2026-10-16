@@ -4,7 +4,8 @@ import { RoleGate } from "@/components/role-gate";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
-import { EHS_ROLES, ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
+import { ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
+import { ASSIGNABLE_ROLES } from "@/lib/ehs/access";
 import { PermissionsDialog } from "@/components/admin/permissions-dialog";
 import { CompanySettings } from "@/components/admin/company-settings";
 import { ThemeToggle } from "@/components/theme-provider";
@@ -237,7 +238,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
-  const [newUser, setNewUser] = useState({ fullName: "", email: "", role: "Employee" as EhsRole, department: "Operations", projectId: undefined as number | undefined, dualRole: false });
+  const [newUser, setNewUser] = useState({ fullName: "", email: "", role: "Employee" as EhsRole, projectId: undefined as number | undefined });
   const [noticeForm, setNoticeForm] = useState({ title: "", message: "", userId: "all" });
 
   // ========== DATA FETCHING ==========
@@ -364,10 +365,9 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
     event.preventDefault();
     setBusy(true);
     try {
-      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["teamleader.dashboard", "attendance.view", "hours.record", "ncr.raise"] : []) : [];
-      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, department: newUser.department, projectId: newUser.projectId, permissions } });
+      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, projectId: newUser.projectId } });
       setMsg(result.inviteSent ? `User added. A password setup link was emailed to ${newUser.email}.` : "User added, but the invitation email could not be sent. Check email settings and send a password reset.");
-      setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
+      setNewUser({ fullName: "", email: "", role: "Employee", projectId: undefined });
       await fetchData();
     } catch (error) {
       setMsg(errorMessage(error, "Could not create user"));
@@ -382,11 +382,10 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
     event.preventDefault();
     setBusy(true);
     try {
-      const permissions = newUser.dualRole ? (newUser.role === "Team_Leader" ? ["fleet.driver_dashboard"] : newUser.role === "Driver" ? ["teamleader.dashboard", "attendance.view", "hours.record", "ncr.raise"] : []) : [];
-      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, department: newUser.department, projectId: newUser.projectId, permissions } });
+      const result = await createUser({ data: { fullName: newUser.fullName, email: newUser.email, role: newUser.role, projectId: newUser.projectId } });
       setMsg(result.inviteSent ? `User ${newUser.fullName} added. A password setup link was emailed to ${newUser.email}.` : `User ${newUser.fullName} added, but the invitation email could not be sent. Check email settings and send a password reset.`);
       setShowAddUserModal(false);
-      setNewUser({ fullName: "", email: "", role: "Employee", department: "Operations", projectId: undefined, dualRole: false });
+      setNewUser({ fullName: "", email: "", role: "Employee", projectId: undefined });
       await fetchData();
     } catch (error) { setMsg(errorMessage(error, "Could not create user")); }
     finally { setBusy(false); }
@@ -1062,7 +1061,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
                                 } catch (error) { setMsg(errorMessage(error, "Could not update role")); }
                               }}
                             >
-                              {EHS_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{ROLE_LABELS[roleOption]}</option>)}
+                              {ASSIGNABLE_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{ROLE_LABELS[roleOption]}</option>)}
                             </select>
                           </td>
                           <td className="px-4 py-3">
@@ -1315,8 +1314,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
               <Field label="Full name"><input required value={newUser.fullName} onChange={(event) => setNewUser({ ...newUser, fullName: event.target.value })} className={inputClass} placeholder="Amina Juma" /></Field>
               <Field label="Email address"><input required type="email" value={newUser.email} onChange={(event) => setNewUser({ ...newUser, email: event.target.value })} className={inputClass} placeholder="user@company.com" /></Field>
               <p className="text-xs text-fg-muted">We’ll email this user a secure link to choose their own password.</p>
-              <div className="grid gap-3 sm:grid-cols-2"><Field label="Role"><select value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value as EhsRole })} className={inputClass}>{EHS_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{roleOption}</option>)}</select></Field><Field label="Department"><select value={newUser.department} onChange={(event) => setNewUser({ ...newUser, department: event.target.value })} className={inputClass}>{["Operations", "Health, Safety & Environment", "Finance", "Human Resources", "Administration"].map((department) => <option key={department}>{department}</option>)}</select></Field></div>
-              {newUser.role === "Driver" || newUser.role === "Team_Leader" ? <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={newUser.dualRole} onChange={(event) => setNewUser({ ...newUser, dualRole: event.target.checked })} className="mt-0.5 accent-accent" /><span>{newUser.role === "Driver" ? "This user is also a team leader" : "This user is also a driver"}<span className="block text-xs text-fg-muted">They will see both relevant workspaces with the matching permissions.</span></span></label> : null}
+              <Field label="Role"><select required value={newUser.role} onChange={(event) => setNewUser({ ...newUser, role: event.target.value as EhsRole })} className={inputClass}>{ASSIGNABLE_ROLES.map((roleOption) => <option key={roleOption} value={roleOption}>{ROLE_LABELS[roleOption]}</option>)}</select></Field>
               <Field label="Project assignment (optional)"><select value={newUser.projectId ?? ""} onChange={(event) => setNewUser({ ...newUser, projectId: event.target.value ? Number(event.target.value) : undefined })} className={inputClass}><option value="">No project yet</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
               <button disabled={busy} className={primaryBtn} type="submit">{busy ? "Creating..." : "Create account"}</button>
             </form>

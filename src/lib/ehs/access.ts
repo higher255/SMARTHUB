@@ -48,11 +48,12 @@ export const PERMISSION_LABELS = {
 
 export type Permission = keyof typeof PERMISSION_LABELS;
 export const ALL_PERMISSIONS = Object.keys(PERMISSION_LABELS) as Permission[];
+const ADMIN_EXCLUDED_PERMISSIONS: Permission[] = ["finance.endorse", "finance.approve", "finance.pay", "leave.approve", "permits.approve"];
 
 const STAFF: Permission[] = ["finance.request", "ehs.report"];
 
 export const ROLE_PERMISSIONS: Record<EhsRole, Permission[]> = {
-  Admin: ALL_PERMISSIONS,
+  Admin: ALL_PERMISSIONS.filter((permission) => !ADMIN_EXCLUDED_PERMISSIONS.includes(permission)),
   EHS_Officer: [
     ...STAFF, "data.view_org", "ehs.manage", "ehs.view_org", "wellbeing.manage", "permits.approve", "fleet.manage", "projects.manage",
     "announce.post", "hours.record", "ncr.raise", "ncr.manage", "hira.manage", "subcontractors.manage", "people.view",

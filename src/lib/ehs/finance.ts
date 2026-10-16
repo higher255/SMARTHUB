@@ -8,6 +8,7 @@ import {
   audit,
   getUserFullName,
   notify,
+  notifyInApp,
   requirePermission,
   requireProfile,
   usersWithPermission,
@@ -175,27 +176,20 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
 
     const approvers = await usersWithPermission(sql, profile.organizationId, "finance.approve");
     const summary = `${name} requested ${money(data.amount, currency)} for ${projectName}: ${data.title}`;
-    await notify(sql, {
+    const financeNotice = await notify(sql, {
       organizationId: profile.organizationId,
       userIds: approvers.filter((id) => id !== context.userId),
       title: `${created.request_number} needs approval` + (overBudget ? " (over budget)" : ""),
       message: overBudget ? `${summary}. Over budget by ${money(overBy, currency)}.` : summary, type: "finance_request", link: `/finance?request=${created.id}`, entityType: "finance_request", entityId: created.id,
     });
-    const requesterNotice = await notify(sql, {
+    await notifyInApp(sql, {
       organizationId: profile.organizationId, userIds: [context.userId],
       title: `${created.request_number} submitted`,
       message: "Your request was sent directly to Finance for approval.",
       type: "finance_request", link: "/requests", entityType: "finance_request", entityId: created.id,
     });
-    if (project[0] && project[0].user_id !== context.userId && !approvers.includes(project[0].user_id)) {
-      await notify(sql, {
-        organizationId: profile.organizationId, userIds: [project[0].user_id],
-        title: `Money requested on ${project[0].name}`, message: summary, type: "finance_request", link: "/projectmanager",
-        entityType: "finance_request", entityId: created.id,
-      });
-    }
     await audit(sql, profile.organizationId, context.userId, "create", "finance_request", created.id, { amount: data.amount });
-    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager: false, overBudget, emailStatus: requesterNotice.emailStatus };
+    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager: false, overBudget, emailStatus: financeNotice.emailStatus };
   });
 
 export const listFinanceRequests = createServerFn({ method: "GET" })
@@ -272,7 +266,7 @@ export const approveFinanceRequest = createServerFn({ method: "POST" })
       link: "/requests", entityType: "finance_request", entityId: r.id,
     });
     const payers = await usersWithPermission(sql, profile.organizationId, "finance.pay");
-    await notify(sql, {
+    await notifyInApp(sql, {
       organizationId: profile.organizationId, userIds: payers.filter((id) => id !== context.userId), title: `${r.request_number} ready to pay`,
       message: `${money(num(r.amount), r.currency)} to ${r.requested_by}: ${r.title}`, type: "finance_request", link: `/finance?request=${r.id}`,
       entityType: "finance_request", entityId: r.id,
