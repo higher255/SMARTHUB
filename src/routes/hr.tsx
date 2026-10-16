@@ -4,23 +4,31 @@ import { AppShell, Panel, StatCard } from "@/components/app-shell";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { RoleGate } from "@/components/role-gate";
 import { useLive } from "@/lib/ui/use-live";
-import { TabBar } from "@/components/ui-kit";
 import { AttendanceBoard, HealthStatusBoard, LeaveApprovals, MyStaffsBoard } from "@/components/daily/daily";
 import { can } from "@/lib/ehs/access";
 import { deleteAnnouncement, listAnnouncements, listCertificates, listAllUsersForManager, type Announcement, type Certificate } from "@/lib/ehs/server";
 import type { EhsRole } from "@/lib/ehs/roles";
 import { Award, Users } from "lucide-react";
 
-export const Route = createFileRoute("/hr")({ component: HrPage });
+const HR_SECTIONS = ["people", "health", "leave", "attendance"] as const;
+type HrSection = (typeof HR_SECTIONS)[number];
+
+export const Route = createFileRoute("/hr")({
+  validateSearch: (search: Record<string, unknown>) => ({ ...(HR_SECTIONS.includes(search.section as HrSection) ? { section: search.section as HrSection } : {}) }),
+  component: HrPage,
+});
 
 function HrPage() {
   return <RoleGate path="/hr">{(profile) => <HrDashboard name={profile.fullName} role={profile.role} userId={profile.userId} canLeave={can(profile, "leave.approve")} canAttendance={can(profile, "attendance.view")} canHr={can(profile, "hr.manage")} />}</RoleGate>;
 }
 
 function HrDashboard({ name, role, userId, canLeave, canAttendance, canHr }: { name: string; role: EhsRole; userId: string; canLeave: boolean; canAttendance: boolean; canHr: boolean }) {
-  const [tab, setTab] = useState<"people" | "leave" | "attendance" | "health">(canHr ? "people" : canLeave ? "leave" : "attendance");
+  const { section } = Route.useSearch();
   const canViewHealth = role === "HR";
-  const tabs = [...(canHr ? [{ id: "people" as const, label: "People and certificates" }] : []), ...(canViewHealth ? [{ id: "health" as const, label: "Health declarations" }] : []), ...(canLeave ? [{ id: "leave" as const, label: "Leave requests" }] : []), ...(canAttendance ? [{ id: "attendance" as const, label: "Attendance" }] : [])];
+  const defaultSection: HrSection = canHr ? "people" : canViewHealth ? "health" : canLeave ? "leave" : "attendance";
+  const sectionAllowed = (value: HrSection) => value === "people" ? canHr : value === "health" ? canViewHealth : value === "leave" ? canLeave : canAttendance;
+  const [tab, setTab] = useState<HrSection>(section && sectionAllowed(section) ? section : defaultSection);
+  useEffect(() => setTab(section && sectionAllowed(section) ? section : defaultSection), [section, canHr, canLeave, canAttendance, canViewHealth]);
   const [users, setUsers] = useState<Array<{ userId: string; fullName: string; role: string; department: string }>>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -34,7 +42,6 @@ function HrDashboard({ name, role, userId, canLeave, canAttendance, canHr }: { n
   const expiring = certificates.filter((certificate) => new Date(certificate.expiresAt).getTime() <= Date.now() + 7 * 86400000).length;
 
   return <AppShell title={`HR workspace · ${name}`} subtitle="Manage people readiness, certificates, and announcements across Smart Hub." role={role}>
-    <TabBar tabs={tabs} active={tab} onChange={setTab} />
     {tab === "leave" ? <LeaveApprovals userId={userId} /> : null}
     {tab === "attendance" ? <AttendanceBoard /> : null}
     {tab === "health" && canViewHealth ? <HealthStatusBoard mode="history" /> : null}

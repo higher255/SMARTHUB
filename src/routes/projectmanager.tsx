@@ -73,7 +73,11 @@ import {
   Search
 } from "lucide-react";
 
+const PM_SECTIONS = ["projects", "tasks", "reports", "team"] as const;
+type PmSection = (typeof PM_SECTIONS)[number];
+
 export const Route = createFileRoute("/projectmanager")({
+  validateSearch: (search: Record<string, unknown>) => ({ section: PM_SECTIONS.includes(search.section as PmSection) ? search.section as PmSection : "projects" }),
   component: PmPage,
 });
 
@@ -86,8 +90,10 @@ function PmPage() {
 }
 
 function PmDash({ name, role }: { name: string; role: EhsRole }) {
+  const { section } = Route.useSearch();
   // ========== STATE ==========
-  const [tab, setTab] = useState<"projects" | "tasks" | "reports" | "team">("projects");
+  const [tab, setTab] = useState<PmSection>(section);
+  useEffect(() => setTab(section), [section]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -424,46 +430,6 @@ function PmDash({ name, role }: { name: string; role: EhsRole }) {
               </div>
             </div>
             <p className="text-xs text-fg-muted mt-2">Project progress</p>
-          </div>
-        </div>
-
-        {/* ======================================== */}
-        {/* TABS */}
-        {/* ======================================== */}
-        <div className="mb-6 overflow-x-auto">
-          <div className="flex gap-1 border-b border-border min-w-max">
-            <button
-              onClick={() => setTab("projects")}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${
-                tab === "projects" ? 'border-accent text-accent bg-accent/5' : 'border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle'
-              }`}
-            >
-              <FolderOpen className="size-4" /> Projects
-            </button>
-            <button
-              onClick={() => setTab("tasks")}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${
-                tab === "tasks" ? 'border-accent text-accent bg-accent/5' : 'border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle'
-              }`}
-            >
-              <ListTodo className="size-4" /> Tasks & Milestones
-            </button>
-            <button
-              onClick={() => setTab("reports")}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${
-                tab === "reports" ? 'border-accent text-accent bg-accent/5' : 'border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle'
-              }`}
-            >
-              <BarChart3 className="size-4" /> Reports
-            </button>
-            <button
-              onClick={() => setTab("team")}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${
-                tab === "team" ? 'border-accent text-accent bg-accent/5' : 'border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle'
-              }`}
-            >
-              <Users className="size-4" /> Team
-            </button>
           </div>
         </div>
 

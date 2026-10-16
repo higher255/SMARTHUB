@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { BookOpen, Download, FilePlus2, Plus, Printer, Receipt, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { Field } from "@/components/app-shell";
-import { EmptyState, Kpi, Modal, Notice, StatusBadge, TabBar, btnDanger, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
+import { EmptyState, Kpi, Modal, Notice, StatusBadge, btnDanger, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
 import { useOrgBrand } from "@/components/workspace-bar";
 import { can } from "@/lib/ehs/access";
 import {
@@ -18,24 +18,10 @@ import { MoneyInput } from "@/components/finance/money-input";
 
 type Sub = "invoices" | "bills" | "banking" | "tax" | "journal" | "reports" | "accounts" | "orders";
 
-export function AccountingWorkspace({ profile, projects }: { profile: Profile; projects: { id: number; name: string }[] }) {
-  const [sub, setSub] = useState<Sub>("invoices");
-  const tabs = useMemo(
-    () => [
-      { id: "invoices" as const, label: "Invoices" },
-      { id: "bills" as const, label: "Bills & Payables" },
-      { id: "banking" as const, label: "Bank reconciliation" },
-      ...(can(profile, "accounts.reports") ? [{ id: "tax" as const, label: "VAT" }] : []),
-      { id: "journal" as const, label: "Journal" },
-      ...(can(profile, "accounts.reports") ? [{ id: "reports" as const, label: "Reports" }] : []),
-      { id: "accounts" as const, label: "Chart of accounts" },
-      { id: "orders" as const, label: "Purchase orders" },
-    ],
-    [profile],
-  );
+export function AccountingWorkspace({ profile, projects, section = "invoices" }: { profile: Profile; projects: { id: number; name: string }[]; section?: Sub }) {
+  const sub = section;
   return (
     <div>
-      <TabBar tabs={tabs} active={sub} onChange={setSub} />
       {sub === "invoices" ? <Invoices profile={profile} projects={projects} /> : null}
       {sub === "bills" ? <PayablesWorkspace profile={profile} projects={projects} /> : null}
       {sub === "banking" ? <ReconciliationWorkspace profile={profile} /> : null}

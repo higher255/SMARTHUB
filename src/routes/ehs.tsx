@@ -84,7 +84,18 @@ import {
   PieChart,
   Printer, ShieldCheck, Wallet } from "lucide-react";
 
-export const Route = createFileRoute("/ehs")({ component: AdminPage });
+const EHS_TAB_IDS = ["overview", "fleet", "journeys", "ptw", "training", "money", "hse", "health", "notices", "reports", "users", "settings"] as const;
+type EhsTabId = (typeof EHS_TAB_IDS)[number];
+const EHS_SAFETY_IDS = ["kpis", "observations", "ncr", "hira", "subs"] as const;
+type EhsSafetyId = (typeof EHS_SAFETY_IDS)[number];
+
+export const Route = createFileRoute("/ehs")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: EHS_TAB_IDS.includes(search.tab as EhsTabId) ? search.tab as EhsTabId : "overview",
+    ...(EHS_SAFETY_IDS.includes(search.safety as EhsSafetyId) ? { safety: search.safety as EhsSafetyId } : {}),
+  }),
+  component: AdminPage,
+});
 
 // ============================================
 // DATE HELPER FUNCTIONS
@@ -229,6 +240,8 @@ function AdminPage() {
 // ============================================
 
 function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profile: Profile }) {
+  const { tab: requestedTab, safety: requestedSafety } = Route.useSearch();
+  const navigate = Route.useNavigate();
   // ========== STATE ==========
   const [projects, setProjects] = useState<Project[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -240,13 +253,10 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "fleet" | "journeys" | "ptw" | "hse" | "health" | "training" | "money" | "notices" | "users" | "reports" | "settings"
-  >("overview");
+  const [activeTab, setActiveTab] = useState<EhsTabId>(requestedTab);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [showIncidentModal, setShowIncidentModal] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [reportPeriod, setReportPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
@@ -256,6 +266,12 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [journeyInbox, setJourneyInbox] = useState<InboxItem[]>([]);
   const [activeJourneyLocations, setActiveJourneyLocations] = useState<ActiveJourneyLocation[]>([]);
   const [journeyOverview, setJourneyOverview] = useState({ submitted: 0, active: 0 });
+
+  useEffect(() => setActiveTab(requestedTab), [requestedTab]);
+  const selectTab = (tab: EhsTabId, safety?: EhsSafetyId) => {
+    setActiveTab(tab);
+    void navigate({ to: "/ehs", search: (previous) => ({ ...previous, tab, ...(safety ? { safety } : {}) }) });
+  };
 
   // User Management State
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -525,22 +541,6 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
     }
   };
 
-  // ========== TABS ==========
-  const tabs = [
-    { id: "overview", label: "Overview", icon: <Activity className="size-4" /> },
-    { id: "fleet", label: "Fleet Management", icon: <Car className="size-4" />, badge: stats.totalVehicles },
-    { id: "journeys", label: "Journey management (JMP)", icon: <Globe className="size-4" />, badge: journeyInbox.filter((item) => item.kind === "journey" && item.needsMyAction).length },
-    { id: "ptw", label: "PTW Approvals", icon: <FileWarning className="size-4" />, badge: stats.pendingPermits },
-    { id: "training", label: "Training & competence", icon: <Award className="size-4" />, badge: certificates.filter((c) => c.status !== "Valid").length },
-    ...(can(profile, "finance.request") ? [{ id: "money", label: "Money requests", icon: <Wallet className="size-4" /> }] : []),
-    { id: "hse", label: "Observations & wellbeing", icon: <ShieldCheck className="size-4" /> },
-    { id: "health", label: "Health declarations", icon: <Activity className="size-4" /> },
-    { id: "notices", label: "Notice board", icon: <Bell className="size-4" /> },
-    ...(role === "Admin" ? [{ id: "users", label: "User Management", icon: <Users className="size-4" />, badge: stats.totalUsers }] : []),
-    { id: "reports", label: "Reports & CAPA", icon: <BarChart3 className="size-4" />, badge: stats.openCAPA },
-    ...(role === "Admin" ? [{ id: "settings", label: "Settings", icon: <Settings className="size-4" /> }] : []),
-  ];
-
   // ========== LOADING ==========
   if (loading) {
     return (
@@ -621,51 +621,24 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           </div>
         </div>
 
-        {/* ======================================== */}
-        {/* EHS SIDEBAR + MODULE */}
-        {/* ======================================== */}
-        <div className="grid items-start gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
-          <nav aria-label="EHS modules" className="rounded-xl border border-border bg-bg-elevated p-2 lg:sticky lg:top-20">
-            <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">EHS workspace</p>
-            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => { setActiveTab(tab.id as any); setMobileMenuOpen(false); }}
-                aria-current={activeTab === tab.id ? "page" : undefined}
-                className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium transition sm:text-sm ${activeTab === tab.id ? "bg-accent/10 text-accent" : "text-fg-muted hover:bg-bg-subtle hover:text-fg"}`}
-              >
-                <span className="shrink-0">{tab.icon}</span>
-                <span className="min-w-0 flex-1">{tab.label}</span>
-                {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold text-white">
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-            </div>
-            <div className="mt-3 border-t border-border px-3 pt-3 text-xs leading-relaxed text-fg-muted">
-              <p><span className="font-semibold text-fg">JMP active:</span> {stats.activeJourneys}</p>
-              <p className="mt-1"><span className="font-semibold text-fg">Certificates:</span> {stats.trainingValid} valid / {stats.trainingTotal}</p>
-              <p className="mt-1"><span className="font-semibold text-fg">JMP submitted:</span> {journeyOverview.submitted}</p>
-            </div>
-          </nav>
-
-          <div className="min-w-0">
+        <div className="min-w-0">
 
         {/* ======================================== */}
         {/* TAB: OVERVIEW */}
         {/* ======================================== */}
         {activeTab === "overview" && (
           <div className="grid gap-6">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <StatCard label="JMP active" value={stats.activeJourneys} />
+              <StatCard label="Certificates" value={`${stats.trainingValid} valid / ${stats.trainingTotal}`} />
+              <StatCard label="JMP submitted" value={journeyOverview.submitted} />
+            </div>
             <div className="lg:col-span-2"><HealthStatusBoard mode="today" /></div>
             <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-fg">Incident Register</h3>
                 <button
-                  onClick={() => setActiveTab("hse")}
+                  onClick={() => selectTab("hse")}
                   className="text-sm text-accent hover:underline flex items-center gap-1"
                 >
                   <Eye className="size-3" /> View all incidents
@@ -1172,7 +1145,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         {/* ======================================== */}
         {/* TAB: REPORTS & CAPA */}
         {/* ======================================== */}
-        {activeTab === "hse" && <HseWorkspace profile={profile} />}
+        {activeTab === "hse" && <HseWorkspace profile={profile} section={requestedSafety === "subs" && !can(profile, "subcontractors.manage") ? "kpis" : requestedSafety} />}
         {activeTab === "health" && <HealthStatusBoard mode="history" />}
         {activeTab === "notices" && <Panel title="Notice board"><p className="mb-4 text-sm text-fg-muted">Share safety notices, policy updates, and company announcements with staff.</p><AnnouncementComposer /></Panel>}
 
@@ -1485,7 +1458,6 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           </div>
         )}
 
-          </div>
         </div>
 
         {/* ======================================== */}
@@ -1550,7 +1522,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                   </p>
                 </div>
                 <div className="flex gap-2 pt-4 border-t border-border">
-                  <button type="button" onClick={() => { setShowIncidentModal(false); setActiveTab("hse"); }} className="flex-1 px-4 py-2 bg-accent text-accent-fg rounded-lg text-sm font-medium hover:bg-accent-bright transition-colors">
+                  <button type="button" onClick={() => { setShowIncidentModal(false); selectTab("hse"); }} className="flex-1 px-4 py-2 bg-accent text-accent-fg rounded-lg text-sm font-medium hover:bg-accent-bright transition-colors">
                     Open incident workspace
                   </button>
                   <button

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Plus, Stethoscope } from "lucide-react";
 import { Field } from "@/components/app-shell";
 import { MiniBars } from "@/components/mini-bars";
-import { EmptyState, Kpi, Modal, Notice, StatusBadge, TabBar, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
+import { EmptyState, Kpi, Modal, Notice, StatusBadge, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
 import { can } from "@/lib/ehs/access";
 import {
   INJURY_TYPES, classifyIncident, createNcr, createRiskAssessment, decideSubcontractor, getSafetyMetrics, listNcrs, listRiskAssessments,
@@ -19,20 +19,12 @@ type Sub = "kpis" | "observations" | "ncr" | "hira" | "subs";
 const th = "px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-fg-subtle";
 const td = "px-3 py-2.5 text-sm";
 
-export function HseWorkspace({ profile }: { profile: Profile }) {
-  const [sub, setSub] = useState<Sub>("kpis");
+export function HseWorkspace({ profile, section = "kpis" }: { profile: Profile; section?: Sub }) {
+  const sub = section;
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   useLive(async () => setProjects((await listProjects().catch(() => [])).map((p) => ({ id: Number(p.id), name: p.name }))), 120000);
-  const tabs = [
-    { id: "kpis" as const, label: "Safety KPIs" },
-    { id: "observations" as const, label: "Observations & wellbeing" },
-    { id: "ncr" as const, label: "NCRs" },
-    { id: "hira" as const, label: "Risk assessments" },
-    ...(can(profile, "subcontractors.manage") ? [{ id: "subs" as const, label: "Subcontractors" }] : []),
-  ];
   return (
     <div>
-      <TabBar tabs={tabs} active={sub} onChange={setSub} />
       {sub === "kpis" ? <Kpis profile={profile} projects={projects} /> : null}
       {sub === "observations" ? <SafetyHubWorkspace profile={profile} /> : null}
       {sub === "ncr" ? <Ncrs profile={profile} projects={projects} /> : null}

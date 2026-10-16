@@ -6,7 +6,7 @@ import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AccountingWorkspace } from "@/components/finance/accounting";
 import { BudgetDialog } from "@/components/finance/budget-dialog";
 import { RequestTimeline } from "@/components/request-timeline";
-import { EmptyState, Kpi, Modal, Notice, StatusBadge, TabBar, btnDanger, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
+import { EmptyState, Kpi, Modal, Notice, StatusBadge, btnDanger, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
 import { Field, Panel } from "@/components/app-shell";
 import { useOrgBrand } from "@/components/workspace-bar";
 import { can } from "@/lib/ehs/access";
@@ -23,7 +23,8 @@ export const Route = createFileRoute("/finance")({
   validateSearch: (search: Record<string, unknown>) => {
     const id = Number(search.request);
     const section = ["overview", "requests", "budgets", "accounting"].includes(String(search.section)) ? String(search.section) as Tab : undefined;
-    return { ...(Number.isInteger(id) && id > 0 ? { request: id } : {}), ...(section ? { section } : {}) };
+    const ledger = ["invoices", "bills", "banking", "tax", "journal", "reports", "accounts", "orders"].includes(String(search.ledger)) ? String(search.ledger) as AccountingSection : undefined;
+    return { ...(Number.isInteger(id) && id > 0 ? { request: id } : {}), ...(section ? { section } : {}), ...(ledger ? { ledger } : {}) };
   },
   component: FinancePage,
 });
@@ -33,11 +34,12 @@ function FinancePage() {
 }
 
 type Tab = "overview" | "requests" | "budgets" | "accounting";
+type AccountingSection = "invoices" | "bills" | "banking" | "tax" | "journal" | "reports" | "accounts" | "orders";
 type Stats = Awaited<ReturnType<typeof getFinanceDashboardStats>>;
 type Budget = Awaited<ReturnType<typeof getProjectBudgetSummary>>[number];
 
 function FinanceDash({ profile }: { profile: Profile }) {
-  const { request: requestId, section } = Route.useSearch();
+  const { request: requestId, section, ledger } = Route.useSearch();
   const brand = useOrgBrand();
   const currency = brand?.currency ?? "TZS";
   const canView = can(profile, "finance.view");
@@ -94,10 +96,6 @@ function FinanceDash({ profile }: { profile: Profile }) {
     [requests, profile],
   );
 
-  const tabs = [
-    ...(canView ? [{ id: "overview" as const, label: "Overview" }, { id: "requests" as const, label: "Requests", badge: mine.length || undefined }, { id: "budgets" as const, label: "Project budgets" }] : canHandleRequests ? [{ id: "requests" as const, label: "Requests", badge: mine.length || undefined }] : []),
-  ];
-
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -108,8 +106,6 @@ function FinanceDash({ profile }: { profile: Profile }) {
       </div>
       <Notice msg={msg} onClose={() => setMsg("")} />
       <Notice msg={loadError} tone="danger" />
-      <TabBar tabs={tabs} active={tab} onChange={setTab} />
-
       {tab === "overview" && stats ? (
         <div className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -194,7 +190,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
         )
       ) : null}
 
-      {tab === "accounting" && canBooks ? <AccountingWorkspace profile={profile} projects={projects} /> : null}
+      {tab === "accounting" && canBooks ? <AccountingWorkspace profile={profile} projects={projects} section={ledger ?? "invoices"} /> : null}
 
       {budgetFor ? <BudgetDialog projectId={budgetFor} currency={currency} canEdit={can(profile, "budgets.manage")} onClose={() => setBudgetFor(null)} onSaved={(m) => { setMsg(m); void load(); }} /> : null}
 

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
 import { RoleGate } from "@/components/role-gate";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
@@ -57,7 +57,6 @@ import {
   Edit,
   Trash2,
   Plus,
-  ChevronDown,
   Truck,
   Wrench,
   UserX,
@@ -80,7 +79,13 @@ import {
   PieChart
 } from "lucide-react";
 
-export const Route = createFileRoute("/admin")({ component: AdminPage });
+const ADMIN_SECTIONS = ["overview", "incidents", "fleet", "ptw", "users", "reports", "company", "settings"] as const;
+type AdminSection = (typeof ADMIN_SECTIONS)[number];
+
+export const Route = createFileRoute("/admin")({
+  validateSearch: (search: Record<string, unknown>) => ({ section: ADMIN_SECTIONS.includes(search.section as AdminSection) ? search.section as AdminSection : "overview" }),
+  component: AdminPage,
+});
 
 // ============================================
 // DATE HELPER FUNCTIONS
@@ -216,6 +221,8 @@ function AdminPage() {
 // ============================================
 
 function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId: string }) {
+  const { section } = Route.useSearch();
+  const navigate = Route.useNavigate();
   // ========== STATE ==========
   const [projects, setProjects] = useState<Project[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -226,20 +233,24 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
   const [users, setUsers] = useState<any[]>([]);
   const [permUser, setPermUser] = useState<{ userId: string; fullName: string; baseRole: string; permissions: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "fleet" | "ptw" | "users" | "reports" | "company" | "settings">("overview");
-  const [acknowledgedTabs, setAcknowledgedTabs] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<AdminSection>(section);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [showIncidentForm, setShowIncidentForm] = useState(false);
   const [incidentForm, setIncidentForm] = useState({ title: "", location: "", severity: "Low" as "Low" | "Medium" | "High" | "Critical" });
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ fullName: "", email: "", role: "Employee" as EhsRole, projectId: undefined as number | undefined });
   const [noticeForm, setNoticeForm] = useState({ title: "", message: "", userId: "all" });
+
+  useEffect(() => setActiveTab(section), [section]);
+  const selectSection = (next: AdminSection) => {
+    setActiveTab(next);
+    void navigate({ to: "/admin", search: { section: next } });
+  };
 
   // ========== DATA FETCHING ==========
   const fetchData = async () => {
@@ -414,17 +425,6 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
     finally { setBusy(false); }
   };
 
-  // ========== TABS CONFIGURATION ==========
-  const tabs = [
-    { id: 'overview', label: 'Overview', icon: <Activity className="size-4" /> },
-    { id: 'fleet', label: 'Fleet Management', icon: <Car className="size-4" />, badge: stats.totalVehicles, hasNew: !acknowledgedTabs.fleet && vehicles.some((vehicle) => isToday(vehicle.createdAt) || isToday(vehicle.updatedAt)) },
-    { id: 'ptw', label: 'PTW Approvals', icon: <FileWarning className="size-4" />, badge: stats.pendingPermits, hasNew: !acknowledgedTabs.ptw && permits.some((permit) => isToday(permit.createdAt) || isToday(permit.updatedAt)) },
-    { id: 'users', label: 'User Management', icon: <Users className="size-4" />, badge: users.length, hasNew: !acknowledgedTabs.users && users.some((user) => isToday(user.createdAt)) },
-    { id: 'reports', label: 'Reports & CAPA', icon: <ShieldAlert className="size-4" />, badge: stats.openCAPA, hasNew: !acknowledgedTabs.reports && capaList.some((capa) => isToday(capa.createdAt) || isToday(capa.updatedAt)) },
-    { id: 'company', label: 'Company', icon: <Building2 className="size-4" /> },
-    { id: 'settings', label: 'System Settings', icon: <Settings className="size-4" /> }
-  ];
-
   // ========== LOADING STATE ==========
   if (loading) {
     return (
@@ -572,81 +572,6 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
         </div>
 
         {/* ======================================== */}
-        {/* NAVIGATION TABS - USING THEME COLORS */}
-        {/* ======================================== */}
-        <div className="mb-6">
-          {/* Mobile Dropdown */}
-          <div className="lg:hidden mb-4">
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="w-full flex items-center justify-between px-4 py-2 bg-bg-elevated border border-border rounded-lg text-fg"
-            >
-              <span className="flex items-center gap-2">
-                {tabs.find(t => t.id === activeTab)?.icon}
-                {tabs.find(t => t.id === activeTab)?.label}
-              </span>
-              <ChevronDown className={`size-4 transition-transform ${mobileMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-            
-            {mobileMenuOpen && (
-              <div className="mt-2 bg-bg-elevated border border-border rounded-lg shadow-lg overflow-hidden">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id as any);
-                      setAcknowledgedTabs((current) => ({ ...current, [tab.id]: true }));
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-                      activeTab === tab.id
-                        ? 'bg-accent/10 text-accent'
-                        : 'text-fg-muted hover:bg-bg-subtle'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {tab.icon}
-                      {tab.label}
-                    </span>
-                    {tab.badge !== undefined && tab.badge > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-bold ${tab.hasNew ? 'bg-danger' : 'bg-ok'} text-white rounded-full`}>
-                        {tab.badge}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Desktop Tabs */}
-          <div className="hidden lg:flex flex-wrap gap-1 border-b border-border">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id as any);
-                  setAcknowledgedTabs((current) => ({ ...current, [tab.id]: true }));
-                }}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 ${
-                  activeTab === tab.id
-                    ? 'border-accent text-accent bg-accent/5'
-                    : 'border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle'
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-                {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className={`ml-1 px-2 py-0.5 text-[10px] font-bold ${tab.hasNew ? 'bg-danger' : 'bg-ok'} text-white rounded-full`}>
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ======================================== */}
         {/* TAB 1: OVERVIEW - USING THEME COLORS */}
         {/* ======================================== */}
         {activeTab === "overview" && (
@@ -656,7 +581,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-fg">Incident Register</h3>
                 <button 
-                  onClick={() => setActiveTab("incidents" as any)}
+                  onClick={() => selectSection("incidents")}
                   className="text-sm text-accent hover:underline flex items-center gap-1"
                 >
                   <Eye className="size-3" /> View All
@@ -724,15 +649,15 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
                     <Plus className="size-5 text-accent" />
                     <span className="text-xs font-medium text-fg-muted">Report Incident</span>
                   </button>
-                  <button onClick={() => setActiveTab("ptw")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
+                  <button onClick={() => selectSection("ptw")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
                     <FileText className="size-5 text-accent" />
                     <span className="text-xs font-medium text-fg-muted">Create PTW</span>
                   </button>
-                  <button onClick={() => setActiveTab("fleet")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
+                  <button onClick={() => selectSection("fleet")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
                     <Car className="size-5 text-accent" />
                     <span className="text-xs font-medium text-fg-muted">Add Vehicle</span>
                   </button>
-                  <button onClick={() => setActiveTab("users")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
+                  <button onClick={() => selectSection("users")} className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
                     <UserPlus className="size-5 text-accent" />
                     <span className="text-xs font-medium text-fg-muted">Add User</span>
                   </button>
@@ -742,12 +667,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
               <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-fg">Active Projects</h3>
-                  <button 
-                    onClick={() => setActiveTab("overview")}
-                    className="text-sm text-accent hover:underline flex items-center gap-1"
-                  >
-                    <Eye className="size-3" /> View All
-                  </button>
+                  <Link to="/projectmanager" search={{ section: "projects" }} className="flex items-center gap-1 text-sm text-accent hover:underline"><Eye className="size-3" /> View All</Link>
                 </div>
                 {projects.filter(p => p.status !== 'Completed').slice(0, 5).length === 0 ? (
                   <p className="text-sm text-fg-muted text-center py-4">No active projects</p>
@@ -758,7 +678,7 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-fg truncate">{project.name}</p>
                           <div className="flex flex-wrap items-center gap-4 text-xs text-fg-muted">
-                            <span>Budget: ${project.budget?.toLocaleString() || '0'}</span>
+                            <span>Budget: TZS {project.budget?.toLocaleString() || '0'}</span>
                             <span>Deadline: {safeFormatDate(project.deadline)}</span>
                           </div>
                         </div>
@@ -772,6 +692,22 @@ function AdminDash({ name, role, userId }: { name: string; role: EhsRole; userId
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === "incidents" && (
+          <Panel title="Incident register">
+            {filteredIncidents.length === 0 ? <p className="py-8 text-center text-sm text-fg-muted">No incidents reported.</p> : (
+              <ul className="divide-y divide-border">
+                {filteredIncidents.map((incident) => <li key={incident.id}>
+                  <button type="button" className="flex w-full flex-wrap items-center gap-3 py-3 text-left hover:bg-bg-subtle/60" onClick={() => { setSelectedIncident(incident); setShowIncidentModal(true); }}>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{incident.title}</span><span className="block text-xs text-fg-muted">{incident.location || "Unknown location"} · {safeFormatDateTime(incident.createdAt)}</span></span>
+                    <span className={`rounded-full px-2 py-1 text-xs ${getStatusColor(incident.status)}`}>{incident.status}</span>
+                    <span className={`rounded px-2 py-1 text-xs ${getSeverityBadge(incident.severity)}`}>{incident.severity}</span>
+                  </button>
+                </li>)}
+              </ul>
+            )}
+          </Panel>
         )}
 
         {/* ======================================== */}
