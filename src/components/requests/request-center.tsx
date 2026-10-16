@@ -60,8 +60,8 @@ export function RequestCenter({ projects, currency, onClose, onDone, onOther }: 
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">Safety and travel approvals</p>
           <div className="grid gap-2 sm:grid-cols-2">
             <button type="button" className={tile} onClick={() => setPick({ kind: "permit" })}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warn/15 text-warn"><FileWarning className="size-[18px]" /></span><span><span className="block text-sm font-medium">Permit to work (PTW)</span><span className="block text-xs text-fg-muted">Hot work, heights, excavation, electrical, confined space</span><span className="mt-1 block text-[11px] text-accent">Goes to EHS</span></span></button>
-            <button type="button" className={tile} onClick={() => setPick({ kind: "journey" })}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warn/15 text-warn"><Route className="size-[18px]" /></span><span><span className="block text-sm font-medium">Journey plan (JMP)</span><span className="block text-xs text-fg-muted">Before a long or risky trip</span><span className="mt-1 block text-[11px] text-accent">Goes to Fleet</span></span></button>
-            <button type="button" className={tile} onClick={() => setPick({ kind: "inspection" })}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warn/15 text-warn"><Car className="size-[18px]" /></span><span><span className="block text-sm font-medium">Vehicle inspection</span><span className="block text-xs text-fg-muted">Checklist and photos before you drive</span><span className="mt-1 block text-[11px] text-accent">Failures go to Fleet</span></span></button>
+            <button type="button" className={tile} onClick={() => setPick({ kind: "journey" })}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warn/15 text-warn"><Route className="size-[18px]" /></span><span><span className="block text-sm font-medium">Journey plan (JMP)</span><span className="block text-xs text-fg-muted">Before a long or risky trip</span><span className="mt-1 block text-[11px] text-accent">EHS safety review</span></span></button>
+            <button type="button" className={tile} onClick={() => setPick({ kind: "inspection" })}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warn/15 text-warn"><Car className="size-[18px]" /></span><span><span className="block text-sm font-medium">Vehicle inspection</span><span className="block text-xs text-fg-muted">Checklist and photos before you drive</span><span className="mt-1 block text-[11px] text-accent">EHS handles failed checks</span></span></button>
             <button type="button" className={tile} onClick={() => { onClose(); onOther("hazard"); }}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-danger/10 text-danger"><AlertTriangle className="size-[18px]" /></span><span><span className="block text-sm font-medium">Report a hazard or incident</span><span className="block text-xs text-fg-muted">Can be anonymous</span><span className="mt-1 block text-[11px] text-accent">Goes to EHS</span></span></button>
             <button type="button" className={tile} onClick={() => { onClose(); onOther("leave"); }}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/10 text-accent"><CalendarDays className="size-[18px]" /></span><span><span className="block text-sm font-medium">Leave</span><span className="block text-xs text-fg-muted">Annual, sick or other leave</span><span className="mt-1 block text-[11px] text-accent">Goes to HR and managers</span></span></button>
           </div>
@@ -224,11 +224,11 @@ export function JourneyForm({ onClose, onDone }: { onClose: () => void; onDone: 
         setBusy(true);
         try {
           const r = await createJourneyPlan({ data: { vehicleId: vehicleId || undefined, vehicleLabel: label || undefined, origin: f.origin, destination: f.destination, departAt: new Date(f.departAt).toISOString(), eta: f.eta ? new Date(f.eta).toISOString() : undefined, purpose: f.purpose || undefined, passengers: Number(f.passengers) || 0, riskNotes: f.risk || undefined } });
-          onDone(`${r.jmpNumber} sent to Fleet for approval.`);
+          onDone(`${r.jmpNumber} sent to EHS for approval.`);
         } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
       }}>
         <Notice msg={err} tone="danger" />
-        <p className="rounded-lg bg-accent/5 px-3 py-2 text-xs text-fg-muted">Goes to Fleet. Do not start the trip until it is approved.</p>
+        <p className="rounded-lg bg-accent/5 px-3 py-2 text-xs text-fg-muted">EHS reviews this plan. Do not start the trip until it is approved.</p>
         <VehiclePicker vehicles={vehicles} vehicleId={vehicleId} label={label} onChange={(id, l) => { setVehicleId(id); setLabel(l); }} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="From"><input required value={f.origin} onChange={(e) => setF({ ...f, origin: e.target.value })} className={inputCls} /></Field>
@@ -268,7 +268,7 @@ export function InspectionForm({ onClose, onDone }: { onClose: () => void; onDon
         try {
           const r = await submitInspection({ data: { vehicleId: vehicleId || undefined, vehicleLabel: label.trim() || "Vehicle", inspectionType: kind, odometer: odometer ? Number(odometer) : undefined, items: INSPECTION_ITEMS.map((i) => ({ item: i, ok: ok[i] ?? true })), defects: defects || undefined } });
           const up = await uploadPending("inspection", r.id, files);
-          onDone(r.result === "Pass" ? "Inspection passed and recorded." : `Inspection failed. Fleet was told.${up ? ` ${up} file(s) could not be uploaded.` : ""}`);
+          onDone(r.result === "Pass" ? "Inspection passed and recorded." : `Inspection failed. EHS was notified.${up ? ` ${up} file(s) could not be uploaded.` : ""}`);
         } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
       }}>
         <Notice msg={err} tone="danger" />
