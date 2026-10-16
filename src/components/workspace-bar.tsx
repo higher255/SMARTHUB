@@ -128,7 +128,7 @@ export function TenantShell({ profile, children }: { profile: Profile; children:
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const brand = useOrgBrand();
   const [open, setOpen] = useState(false);
-  const spaces = workspacesFor(profile);
+  const spaces = workspacesFor(profile).filter((workspace) => workspace.path !== "/hr");
   const roleLabel = ROLE_LABELS[profile.role as EhsRole] ?? profile.role;
 
   useEffect(() => setOpen(false), [pathname]);

@@ -5,7 +5,6 @@ import { Notice } from "@/components/ui-kit";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { HseWorkspace } from "@/components/hse/hse-workspace";
 import { HealthStatusBoard } from "@/components/daily/daily";
-import { AfterHoursVehiclePanel } from "@/components/requests/after-hours-vehicle";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
 import type { EhsRole } from "@/lib/ehs/roles";
@@ -235,7 +234,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "fleet" | "ptw" | "hse" | "users" | "reports" | "settings"
+    "overview" | "fleet" | "ptw" | "hse" | "health" | "notices" | "users" | "reports" | "settings"
   >("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -454,7 +453,9 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
     { id: "overview", label: "Overview", icon: <Activity className="size-4" /> },
     { id: "fleet", label: "Fleet Management", icon: <Car className="size-4" />, badge: stats.totalVehicles },
     { id: "ptw", label: "PTW Approvals", icon: <FileWarning className="size-4" />, badge: stats.pendingPermits },
-    { id: "hse", label: "Safety and compliance", icon: <ShieldCheck className="size-4" /> },
+    { id: "hse", label: "Observations & wellbeing", icon: <ShieldCheck className="size-4" /> },
+    { id: "health", label: "Health declarations", icon: <Activity className="size-4" /> },
+    { id: "notices", label: "Notice board", icon: <Bell className="size-4" /> },
     ...(role === "Admin" ? [{ id: "users", label: "User Management", icon: <Users className="size-4" />, badge: stats.totalUsers }] : []),
     { id: "reports", label: "Reports & CAPA", icon: <BarChart3 className="size-4" />, badge: stats.openCAPA },
     ...(role === "Admin" ? [{ id: "settings", label: "Settings", icon: <Settings className="size-4" /> }] : []),
@@ -812,7 +813,6 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         {/* ======================================== */}
         {activeTab === "fleet" && (
           <div className="space-y-6">
-            <AfterHoursVehiclePanel profile={profile} mode="review" />
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-bg-elevated rounded-xl border border-border p-4 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -1214,6 +1214,8 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         {/* TAB: REPORTS & CAPA */}
         {/* ======================================== */}
         {activeTab === "hse" && <HseWorkspace profile={profile} />}
+        {activeTab === "health" && <HealthStatusBoard mode="history" />}
+        {activeTab === "notices" && <Panel title="Notice board"><p className="mb-4 text-sm text-fg-muted">Share safety notices, policy updates, and company announcements with staff.</p><AnnouncementComposer /></Panel>}
 
         {activeTab === "reports" && (
           <div className="space-y-6">

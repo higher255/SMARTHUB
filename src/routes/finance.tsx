@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, BookOpen, Check, CheckCheck, Download, Search, Wallet, X } from "lucide-react";
+import { BookOpen, Check, CheckCheck, Download, Search, Wallet, X } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AccountingWorkspace } from "@/components/finance/accounting";
@@ -11,7 +11,7 @@ import { Field, Panel } from "@/components/app-shell";
 import { useOrgBrand } from "@/components/workspace-bar";
 import { can } from "@/lib/ehs/access";
 import {
-  approveFinanceRequest, endorseFinanceRequest, getFinanceDashboardStats, getProjectBudgetSummary, listFinanceRequests,
+  approveFinanceRequest, getFinanceDashboardStats, getProjectBudgetSummary, listFinanceRequests,
   markFinanceRequestPaid, rejectFinanceRequest, type FinanceRequest,
 } from "@/lib/ehs/finance";
 import { listProjects, type Profile } from "@/lib/ehs/server";
@@ -41,7 +41,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
   const currency = brand?.currency ?? "TZS";
   const canView = can(profile, "finance.view");
   const canBooks = can(profile, "accounts.view");
-  const canHandleRequests = ["finance.approve", "finance.endorse", "finance.pay"].some((permission) => can(profile, permission as "finance.approve" | "finance.endorse" | "finance.pay"));
+  const canHandleRequests = can(profile, "finance.approve") || can(profile, "finance.pay");
   const [tab, setTab] = useState<Tab>(canView ? "overview" : canHandleRequests ? "requests" : "accounting");
   const [requests, setRequests] = useState<FinanceRequest[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -207,8 +207,7 @@ function FinanceDash({ profile }: { profile: Profile }) {
 /** What this person may do next with a request, or null when nothing is theirs to do. */
 function actionFor(profile: Profile, r: FinanceRequest): string | null {
   if (r.userId === profile.userId) return null;
-  if (r.status === "Submitted" && r.requiresManager && can(profile, "finance.endorse")) return "Endorse";
-  if ((r.status === "Under Review" || (r.status === "Submitted" && !r.requiresManager)) && can(profile, "finance.approve")) return "Approve";
+  if ((r.status === "Under Review" || r.status === "Submitted") && can(profile, "finance.approve")) return "Approve";
   if (r.status === "Approved" && can(profile, "finance.pay")) return "Pay";
   return null;
 }
@@ -250,7 +249,7 @@ function RequestsTab({ profile, requests, projectName, onOpen, currency }: { pro
                     <td className="px-3 py-3 text-sm">{r.requestedBy}</td>
                     <td className="px-3 py-3 text-sm text-fg-muted">{r.projectId == null ? "Company / office" : projectName.get(r.projectId) ?? `Project ${r.projectId}`}</td>
                     <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums">{formatMoney(r.amount, r.currency || currency)}</td>
-                    <td className="px-3 py-3"><StatusBadge status={r.status} />{r.requiresManager && r.status === "Submitted" ? <span className="ml-1.5 text-[11px] text-warn">manager first</span> : null}{r.overBudget ? <span className="ml-1.5 text-[11px] font-medium text-danger">over budget</span> : null}</td>
+                    <td className="px-3 py-3"><StatusBadge status={r.status} />{r.overBudget ? <span className="ml-1.5 text-[11px] font-medium text-danger">over budget</span> : null}</td>
                     <td className="px-3 py-3 text-right text-xs font-medium text-accent">{action}</td>
                   </tr>
                 );
@@ -265,7 +264,7 @@ function RequestsTab({ profile, requests, projectName, onOpen, currency }: { pro
 
 function RequestModal({ profile, request: r, project, onClose, onChanged }: { profile: Profile; request: FinanceRequest; project: string; onClose: () => void; onChanged: (m: string) => void }) {
   const action = actionFor(profile, r);
-  const canReject = r.userId !== profile.userId && ["Submitted", "Under Review", "Approved"].includes(r.status) && (can(profile, "finance.approve") || can(profile, "finance.endorse"));
+  const canReject = r.userId !== profile.userId && ["Submitted", "Under Review", "Approved"].includes(r.status) && can(profile, "finance.approve");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<null | "reject" | "pay">(null);
@@ -320,8 +319,7 @@ function RequestModal({ profile, request: r, project, onClose, onChanged }: { pr
 
           {mode === null && (action || canReject) ? (
             <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-              {action === "Endorse" ? <button type="button" disabled={busy} className={btnPrimary} onClick={() => void run(() => endorseFinanceRequest({ data: { id: r.id } }), `${r.requestNumber} endorsed and sent to finance`)}><BadgeCheck className="size-4" /> Endorse</button> : null}
-              {action === "Approve" ? <button type="button" disabled={busy} className={btnPrimary} onClick={() => void run(() => approveFinanceRequest({ data: { id: r.id } }), `${r.requestNumber} approved`)}><Check className="size-4" /> Approve</button> : null}
+              {action === "Approve" ? <button type="button" disabled={busy} className={btnPrimary} onClick={() => void run(() => approveFinanceRequest({ data: { id: r.id } }), `${r.requestNumber} approved and added to Bills & Payables`)}><Check className="size-4" /> Approve</button> : null}
               {action === "Pay" ? <button type="button" className={btnPrimary} onClick={() => setMode("pay")}><CheckCheck className="size-4" /> Record payment</button> : null}
               {canReject ? <button type="button" className={btnDanger} onClick={() => setMode("reject")}><X className="size-4" /> Reject</button> : null}
             </div>

@@ -237,6 +237,9 @@ function InvoiceView({ id, canEdit, onClose, onChanged }: { id: number; canEdit:
         <header className="mb-6 flex items-start justify-between gap-4">
           <div>
             <p className="text-lg font-semibold">{brand?.displayName ?? ""}</p>
+            {brand?.businessAddress ? <p className="text-xs text-fg-muted">{brand.businessAddress}</p> : null}
+            {brand?.businessTin ? <p className="text-xs text-fg-muted">TIN: {brand.businessTin}</p> : null}
+            {brand?.businessVrn ? <p className="text-xs text-fg-muted">VRN: {brand.businessVrn}</p> : null}
             <p className="text-xs text-fg-muted">TAX INVOICE</p>
           </div>
           <div className="text-right text-sm">
@@ -251,6 +254,7 @@ function InvoiceView({ id, canEdit, onClose, onChanged }: { id: number; canEdit:
           {inv.customerTin ? <p className="text-fg-muted">TIN {inv.customerTin}</p> : null}
           {inv.customerAddress ? <p className="text-fg-muted">{inv.customerAddress}</p> : null}
         </div>
+        {brand && (brand.businessBankName || brand.businessBankAccountName || brand.businessBankAccountNumber || brand.businessBankSwift) ? <div className="mb-6 rounded-lg border border-border p-3 text-sm"><p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Payment details</p>{brand.businessBankName ? <p>{brand.businessBankName}</p> : null}{brand.businessBankAccountName ? <p>Account name: {brand.businessBankAccountName}</p> : null}{brand.businessBankAccountNumber ? <p>Account number: {brand.businessBankAccountNumber}</p> : null}{brand.businessBankSwift ? <p>SWIFT / BIC: {brand.businessBankSwift}</p> : null}</div> : null}
         <table className="mb-4 w-full">
           <thead className="border-b border-border"><tr><th className={th}>Description</th><th className={`${th} text-right`}>Qty</th><th className={`${th} text-right`}>Unit price</th><th className={`${th} text-right`}>Amount</th></tr></thead>
           <tbody className="divide-y divide-border">
@@ -567,9 +571,17 @@ function Orders({ profile, projects }: { profile: Profile; projects: { id: numbe
   const [f, setF] = useState({ supplierName: "", description: "", amount: "", projectId: "" });
   const load = useCallback(async () => setRows(await listPurchaseOrders().catch(() => [])), []);
   useLive(load, 60000);
+  const printOrder = (order: PurchaseOrder) => {
+    const escapeHtml = (value: string) => value.replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char] ?? char);
+    const popup = window.open("", "_blank");
+    if (!popup) { setMsg("Allow the print window, then choose Print → Save as PDF."); return; }
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(order.poNumber)}</title><style>body{font:15px Arial,sans-serif;margin:48px;color:#17202a}h1{margin:0 0 6px}small{color:#59636e}.box{border:1px solid #ccd2d8;padding:18px;margin-top:28px}dt{font-weight:bold;margin-top:14px}dd{margin:4px 0}</style></head><body><small>${escapeHtml(brand?.name ?? profile.organizationName ?? "Smart Hub")}</small><h1>Purchase order</h1><small>${escapeHtml(order.poNumber)} · ${escapeHtml(formatDate(order.issueDate))}</small><dl class="box"><dt>Supplier</dt><dd>${escapeHtml(order.supplierName)}</dd><dt>Purpose / work</dt><dd>${escapeHtml(order.description)}</dd><dt>Amount</dt><dd>${escapeHtml(formatMoney(order.amount, order.currency))}</dd><dt>Status</dt><dd>${escapeHtml(order.status)}</dd></dl><p>This purchase order authorizes the described purchase. Send the saved PDF to the supplier. Record supplier invoices and payments under Bills &amp; Payables.</p><script>window.onload=()=>window.print()</script></body></html>`);
+    popup.document.close();
+  };
   return (
     <div className="space-y-4">
       <Notice msg={msg} onClose={() => setMsg("")} />
+      <p className="text-sm text-fg-muted">A purchase order authorizes a supplier purchase. Open a PO and choose Print → Save as PDF to send it to the supplier; record the resulting invoice and payment in Bills &amp; Payables.</p>
       {canMake ? (
         <form className="grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-5" onSubmit={async (e) => { e.preventDefault(); try { const r = await createPurchaseOrder({ data: { supplierName: f.supplierName, description: f.description, amount: Number(f.amount), projectId: f.projectId ? Number(f.projectId) : undefined } }); setMsg(`${r.poNumber} created`); setF({ supplierName: "", description: "", amount: "", projectId: "" }); void load(); } catch (err) { setMsg(errorMessage(err)); } }}>
           <Field label="Supplier"><input required value={f.supplierName} onChange={(e) => setF({ ...f, supplierName: e.target.value })} className={inputCls} /></Field>
@@ -581,8 +593,8 @@ function Orders({ profile, projects }: { profile: Profile; projects: { id: numbe
       ) : null}
       {rows.length === 0 ? <EmptyState title="No purchase orders" /> : (
         <div className="overflow-x-auto rounded-xl border border-border bg-bg-elevated">
-          <table className="w-full min-w-[560px]"><thead className="border-b border-border"><tr><th className={th}>PO</th><th className={th}>Supplier</th><th className={th}>Description</th><th className={th}>Date</th><th className={`${th} text-right`}>Amount</th><th className={th}>Status</th></tr></thead>
-            <tbody className="divide-y divide-border">{rows.map((r) => (<tr key={r.id}><td className={`${td} font-medium`}>{r.poNumber}</td><td className={td}>{r.supplierName}</td><td className={td}>{r.description}</td><td className={td}>{formatDate(r.issueDate)}</td><td className={num}>{formatMoney(r.amount, r.currency)}</td><td className={td}><StatusBadge status={r.status} /></td></tr>))}</tbody></table>
+          <table className="w-full min-w-[680px]"><thead className="border-b border-border"><tr><th className={th}>PO</th><th className={th}>Supplier</th><th className={th}>Description</th><th className={th}>Date</th><th className={`${th} text-right`}>Amount</th><th className={th}>Status</th><th className={th}>File</th></tr></thead>
+            <tbody className="divide-y divide-border">{rows.map((r) => (<tr key={r.id}><td className={`${td} font-medium`}>{r.poNumber}</td><td className={td}>{r.supplierName}</td><td className={td}>{r.description}</td><td className={td}>{formatDate(r.issueDate)}</td><td className={num}>{formatMoney(r.amount, r.currency)}</td><td className={td}><StatusBadge status={r.status} /></td><td className={td}><button type="button" className={btnGhost} onClick={() => printOrder(r)}><Download className="size-4" /> PDF</button></td></tr>))}</tbody></table>
         </div>
       )}
     </div>

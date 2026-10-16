@@ -144,8 +144,8 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       select id, name, user_id from projects where id = ${data.projectId} and organization_id = ${profile.organizationId}`;
     if (data.projectId != null && !project[0]) throw new Error("Choose a project from your company");
     const projectName = project[0]?.name ?? "Company / office";
-    const org = await sql<{ currency: string; manager_approval_limit: string | number; enforce_budget: boolean }>`
-      select currency, manager_approval_limit, enforce_budget from organizations where id = ${profile.organizationId}`;
+    const org = await sql<{ currency: string }>`
+      select currency from organizations where id = ${profile.organizationId}`;
     const currency = data.currency ?? org[0]?.currency ?? "TZS";
 
     // Budget check: category allocation if one is set, otherwise the project's total budget.
@@ -161,10 +161,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       ? num(b.committed) + data.amount - num(b.alloc)
       : num(b.total) > 0 ? num(b.total_committed) + data.amount - num(b.total) : 0;
     const overBudget = overBy > 0;
-    if (overBudget && org[0]?.enforce_budget) {
-      throw new Error(`This is ${money(overBy, currency)} over the ${b.alloc != null ? `${data.category} budget` : "project budget"} for ${project[0].name}. Ask a manager to raise the budget first.`);
-    }
-    const requiresManager = data.amount > num(org[0]?.manager_approval_limit);
+    const requiresManager = false;
     const name = getUserFullName(profile);
 
     const rows = await sql<{ id: number; request_number: string }>`
@@ -176,21 +173,19 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       returning id, request_number`;
     const created = rows[0]!;
 
-    const approvers = await usersWithPermission(sql, profile.organizationId, requiresManager ? "finance.endorse" : "finance.approve");
+    const approvers = await usersWithPermission(sql, profile.organizationId, "finance.approve");
     const summary = `${name} requested ${money(data.amount, currency)} for ${projectName}: ${data.title}`;
     await notify(sql, {
       organizationId: profile.organizationId,
       userIds: approvers.filter((id) => id !== context.userId),
-      title: (requiresManager ? `${created.request_number} needs your endorsement` : `${created.request_number} needs approval`) + (overBudget ? " (over budget)" : ""),
+      title: `${created.request_number} needs approval` + (overBudget ? " (over budget)" : ""),
       message: overBudget ? `${summary}. Over budget by ${money(overBy, currency)}.` : summary, type: "finance_request", link: `/finance?request=${created.id}`, entityType: "finance_request", entityId: created.id,
     });
     const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [context.userId],
       title: `${created.request_number} submitted`,
-      message: requiresManager
-        ? "Your request is above the manager limit and goes to a manager first, then to finance."
-        : "Your request was sent to finance for approval.",
-      type: "finance_request", link: `/dashboard?request=${created.id}`, entityType: "finance_request", entityId: created.id,
+      message: "Your request was sent directly to Finance for approval.",
+      type: "finance_request", link: "/requests", entityType: "finance_request", entityId: created.id,
     });
     if (project[0] && project[0].user_id !== context.userId && !approvers.includes(project[0].user_id)) {
       await notify(sql, {
@@ -200,7 +195,7 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       });
     }
     await audit(sql, profile.organizationId, context.userId, "create", "finance_request", created.id, { amount: data.amount });
-    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager, overBudget, emailStatus: requesterNotice.emailStatus };
+    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager: false, overBudget, emailStatus: requesterNotice.emailStatus };
   });
 
 export const listFinanceRequests = createServerFn({ method: "GET" })
@@ -220,9 +215,7 @@ export const listFinanceRequests = createServerFn({ method: "GET" })
     const where: string[] = ["organization_id = $1"];
     const params: unknown[] = [profile.organizationId];
     const add = (cond: string, value: unknown) => { params.push(value); where.push(cond.replace("?", `$${params.length}`)); };
-    const canReviewCompanyRequests = ["finance.approve", "finance.endorse", "finance.pay"].some((permission) =>
-      can(profile, permission as "finance.approve" | "finance.endorse" | "finance.pay"),
-    );
+    const canReviewCompanyRequests = can(profile, "finance.approve") || can(profile, "finance.pay");
     if ((!can(profile, "finance.view") && !canReviewCompanyRequests) || data?.mine) add("user_id = ?", context.userId);
     if (data?.projectId) add("project_id = ?", data.projectId);
     if (data?.status) add("status = ?", data.status);
@@ -255,28 +248,8 @@ async function loadRequestForUpdate(orgId: string, id: number) {
 export const endorseFinanceRequest = createServerFn({ method: "POST" })
   .validator((input: unknown) => z.object({ id: z.number().int(), notes: z.string().max(500).optional() }).parse(input))
   .middleware([authMiddleware, workdayMiddleware])
-  .handler(async ({ context, data }) => {
-    const profile = await requirePermission(context.userId, "finance.endorse", "Only managers can endorse requests");
-    const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
-    if (r.user_id === context.userId) throw new Error("You cannot endorse your own request");
-    if (r.status !== "Submitted" || !r.requires_manager) throw new Error(`This request is ${r.status} and does not need endorsement`);
-    const name = getUserFullName(profile);
-    const updated = await sql`update finance_requests set status = 'Under Review', endorsed_by = ${name}, endorsed_at = now(), updated_at = now()
-      where id = ${r.id} and organization_id = ${profile.organizationId} and status = 'Submitted' returning id`;
-    if (!updated[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
-    const approvers = await usersWithPermission(sql, profile.organizationId, "finance.approve");
-    await notify(sql, {
-      organizationId: profile.organizationId, userIds: approvers, title: `${r.request_number} endorsed, ready for approval`,
-      message: `${name} endorsed ${money(num(r.amount), r.currency)} requested by ${r.requested_by}: ${r.title}`,
-      type: "finance_request", link: `/finance?request=${r.id}`, entityType: "finance_request", entityId: r.id,
-    });
-    const requesterNotice = await notify(sql, {
-      organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} endorsed`,
-      message: `${name} endorsed your request. It is now with finance for approval.`, type: "finance_request", link: `/dashboard?request=${r.id}`,
-      entityType: "finance_request", entityId: r.id,
-    });
-    await audit(sql, profile.organizationId, context.userId, "endorse", "finance_request", r.id);
-    return { success: true, message: "Request endorsed", emailStatus: requesterNotice.emailStatus };
+  .handler(async () => {
+    throw new Error("Management endorsement has been removed. Finance requests go directly to Finance for approval.");
   });
 
 export const approveFinanceRequest = createServerFn({ method: "POST" })
@@ -286,19 +259,17 @@ export const approveFinanceRequest = createServerFn({ method: "POST" })
     const profile = await requirePermission(context.userId, "finance.approve", "Only the finance team can approve requests");
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
     if (r.user_id === context.userId) throw new Error("You cannot approve your own request");
-    const ready = r.status === "Under Review" || (r.status === "Submitted" && !r.requires_manager);
+    const ready = r.status === "Under Review" || r.status === "Submitted";
     if (!ready) {
-      throw new Error(r.status === "Submitted" ? "This request is above the manager limit and needs a manager's endorsement first" : `This request is ${r.status} and cannot be approved`);
+      throw new Error(`This request is ${r.status} and cannot be approved`);
     }
     const name = getUserFullName(profile);
-    const updated = await sql`update finance_requests set status = 'Approved', approved_by = ${name}, approved_at = now(),
-        notes = coalesce(${data.notes ?? null}, notes), updated_at = now()
-      where id = ${r.id} and organization_id = ${profile.organizationId} and status = ${r.status} returning id`;
-    if (!updated[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
+    const payable = await sql<{ bill_id: number; bill_number: string }>`select * from fin_request_approve(${r.id}, ${profile.organizationId}, ${context.userId}, ${name})`;
+    if (!payable[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
     const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} approved`,
-      message: `${name} approved ${money(num(r.amount), r.currency)} for "${r.title}". Payment is next.`, type: "finance_approved",
-      link: `/dashboard?request=${r.id}`, entityType: "finance_request", entityId: r.id,
+      message: `${name} approved ${money(num(r.amount), r.currency)} for "${r.title}". Payable ${payable[0].bill_number} is now in Bills & Payables for payment.`, type: "finance_approved",
+      link: "/requests", entityType: "finance_request", entityId: r.id,
     });
     const payers = await usersWithPermission(sql, profile.organizationId, "finance.pay");
     await notify(sql, {
@@ -307,7 +278,7 @@ export const approveFinanceRequest = createServerFn({ method: "POST" })
       entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "approve", "finance_request", r.id);
-    return { success: true, message: "Finance request approved", emailStatus: requesterNotice.emailStatus };
+    return { success: true, message: `Finance request approved and payable ${payable[0].bill_number} created`, billNumber: payable[0].bill_number, emailStatus: requesterNotice.emailStatus };
   });
 
 export const rejectFinanceRequest = createServerFn({ method: "POST" })
@@ -315,7 +286,7 @@ export const rejectFinanceRequest = createServerFn({ method: "POST" })
   .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const profile = await requireProfile(context.userId);
-    if (!can(profile, "finance.approve") && !can(profile, "finance.endorse")) throw new Error("You cannot reject finance requests");
+    if (!can(profile, "finance.approve")) throw new Error("Only Finance can reject finance requests");
     const { sql, r } = await loadRequestForUpdate(profile.organizationId, data.id);
     if (!["Submitted", "Under Review", "Approved"].includes(r.status)) throw new Error(`This request is ${r.status} and cannot be rejected`);
     const name = getUserFullName(profile);
@@ -325,7 +296,7 @@ export const rejectFinanceRequest = createServerFn({ method: "POST" })
     if (!updated[0]) throw new Error("This request was just updated by someone else. Refresh and try again.");
     const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} rejected`,
-      message: `${name} rejected "${r.title}". Reason: ${data.reason}`, type: "finance_rejected", link: `/dashboard?request=${r.id}`,
+      message: `${name} rejected "${r.title}". Reason: ${data.reason}`, type: "finance_rejected", link: "/requests",
       entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "reject", "finance_request", r.id, { reason: data.reason });
@@ -367,7 +338,7 @@ export const markFinanceRequestPaid = createServerFn({ method: "POST" })
     const requesterNotice = await notify(sql, {
       organizationId: profile.organizationId, userIds: [r.user_id], title: `${r.request_number} paid`,
       message: `${money(num(r.amount), r.currency)} was paid via ${data.paymentMethod}. Reference: ${data.paymentReference}`, type: "finance_paid",
-      link: `/dashboard?request=${r.id}`, entityType: "finance_request", entityId: r.id,
+      link: "/requests", entityType: "finance_request", entityId: r.id,
     });
     await audit(sql, profile.organizationId, context.userId, "pay", "finance_request", r.id, { reference: data.paymentReference });
     return { success: true, message: "Payment recorded and posted to the ledger", emailStatus: requesterNotice.emailStatus };

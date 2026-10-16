@@ -13,7 +13,7 @@ import { errorMessage, useLive } from "@/lib/ui/use-live";
 type Project = { id: number; name: string };
 const today = () => new Date().toISOString().slice(0, 10);
 
-export function SafetyHubWorkspace({ profile, compact = false, onActionComplete }: { profile: Profile; compact?: boolean; onActionComplete?: () => void }) {
+export function SafetyHubWorkspace({ profile, compact = false, showChallenges = true, onActionComplete }: { profile: Profile; compact?: boolean; showChallenges?: boolean; onActionComplete?: () => void }) {
   const [observations, setObservations] = useState<SafetyObservation[]>([]);
   const [challenges, setChallenges] = useState<WellbeingChallenge[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -28,13 +28,13 @@ export function SafetyHubWorkspace({ profile, compact = false, onActionComplete 
   const canChallenge = can(profile, "wellbeing.manage");
   const load = useCallback(async () => {
     const [o, c, p] = await Promise.all([
-      listSafetyObservations().catch(() => []), listWellbeingChallenges().catch(() => []),
+      listSafetyObservations().catch(() => []), showChallenges ? listWellbeingChallenges().catch(() => []) : Promise.resolve([]),
       listProjects().catch(() => []),
     ]);
     setObservations(o); setChallenges(c); setProjects(p.map((x) => ({ id: Number(x.id), name: x.name })));
     if (manage) setAssignees(await listSafetyAssignees().catch(() => []));
     if (can(profile, "ehs.view_org") || manage) setSummary(await getObservationSummary().catch(() => null));
-  }, [manage, profile]);
+  }, [manage, profile, showChallenges]);
   useLive(load, 30000);
   const complete = (msg: string) => { setDialog(null); setMessage(msg); onActionComplete?.(); void load(); };
 
@@ -43,7 +43,7 @@ export function SafetyHubWorkspace({ profile, compact = false, onActionComplete 
     {summary ? <div className="space-y-3"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Kpi label="Observations" value={summary.total} /><Kpi label="Open actions" value={summary.open} tone={summary.open ? "warn" : "ok"} /><Kpi label="High / critical open" value={summary.critical} tone={summary.critical ? "danger" : "ok"} /><Kpi label="Closed this month" value={summary.closedThisMonth} tone="ok" /></div><div className="grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-border bg-bg-elevated p-4"><p className="mb-3 text-sm font-semibold">Observation trend · 6 months</p><MiniBars label="Safety observations per month" data={summary.monthly.map((x) => ({ label: x.month, value: x.count }))} /></div><div className="rounded-xl border border-border bg-bg-elevated p-4"><p className="mb-3 text-sm font-semibold">Observation types · 90 days</p><MiniBars label="Observation counts by type" data={summary.byCategory.map((x) => ({ label: x.category, value: x.count }))} /></div></div></div> : null}
     <div className="flex flex-wrap gap-2">
       <button type="button" className={btnPrimary} onClick={() => setDialog("observation")}><ClipboardPlus className="size-4" /> Report safety observation</button>
-      {canChallenge ? <button type="button" className={btnGhost} onClick={() => setDialog("challenge")}><Plus className="size-4" /> New wellbeing challenge</button> : null}
+      {showChallenges && canChallenge ? <button type="button" className={btnGhost} onClick={() => setDialog("challenge")}><Plus className="size-4" /> New wellbeing challenge</button> : null}
     </div>
     <div className={`grid gap-5 ${compact ? "" : "xl:grid-cols-2"}`}>
       <Panel title="Safety observations">
@@ -68,7 +68,7 @@ export function SafetyHubWorkspace({ profile, compact = false, onActionComplete 
         </ul>}
       </Panel>
 
-      <Panel title="Wellbeing step challenges">
+      {showChallenges ? <Panel title="Wellbeing step challenges">
         <p className="mb-3 text-xs text-fg-muted">Voluntary activity challenge. Members see their own entries; the team sees only totals.</p>
         {challenges.length === 0 ? <EmptyState title="No challenges right now" hint={canChallenge ? "Create a step challenge to launch it for your team." : "Ask your EHS lead to start a step challenge."} /> : <ul className="space-y-3">
           {challenges.map((c) => <li key={c.id} className="rounded-lg border border-border p-3">
@@ -79,11 +79,11 @@ export function SafetyHubWorkspace({ profile, compact = false, onActionComplete 
             {canChallenge && c.status === "Active" ? <button type="button" className={`${btnGhost} mt-2`} onClick={() => void setWellbeingChallengeStatus({ data: { id: c.id, status: "Completed" } }).then(() => { setMessage("Challenge completed"); void load(); }).catch((e) => setMessage(errorMessage(e)))}>Complete challenge</button> : null}
           </li>)}
         </ul>}
-      </Panel>
+      </Panel> : null}
     </div>
 
     {dialog === "observation" ? <ObservationDialog projects={projects} onClose={() => setDialog(null)} onDone={complete} /> : null}
-    {dialog === "challenge" ? <ChallengeDialog onClose={() => setDialog(null)} onDone={complete} /> : null}
+    {showChallenges && dialog === "challenge" ? <ChallengeDialog onClose={() => setDialog(null)} onDone={complete} /> : null}
   </div>;
 }
 

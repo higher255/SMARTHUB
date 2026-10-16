@@ -21,6 +21,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as ManagementRouteImport } from './routes/management'
 import { Route as PlatformRouteImport } from './routes/platform'
 import { Route as ProjectmanagerRouteImport } from './routes/projectmanager'
+import { Route as RequestsRouteImport } from './routes/requests'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RootRouteImport } from './routes/root'
 import { Route as TeamleaderRouteImport } from './routes/teamleader'
@@ -87,6 +88,11 @@ const ProjectmanagerRoute = ProjectmanagerRouteImport.update({
   path: '/projectmanager',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RequestsRoute = RequestsRouteImport.update({
+  id: '/requests',
+  path: '/requests',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/management': typeof ManagementRoute
   '/platform': typeof PlatformRoute
   '/projectmanager': typeof ProjectmanagerRoute
+  '/requests': typeof RequestsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/management': typeof ManagementRoute
   '/platform': typeof PlatformRoute
   '/projectmanager': typeof ProjectmanagerRoute
+  '/requests': typeof RequestsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/management': typeof ManagementRoute
   '/platform': typeof PlatformRoute
   '/projectmanager': typeof ProjectmanagerRoute
+  '/requests': typeof RequestsRoute
   '/reset-password': typeof ResetPasswordRoute
   '/root': typeof RootRoute
   '/teamleader': typeof TeamleaderRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/management'
     | '/platform'
     | '/projectmanager'
+    | '/requests'
     | '/reset-password'
     | '/root'
     | '/teamleader'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/management'
     | '/platform'
     | '/projectmanager'
+    | '/requests'
     | '/reset-password'
     | '/root'
     | '/teamleader'
@@ -224,6 +235,7 @@ export interface FileRouteTypes {
     | '/management'
     | '/platform'
     | '/projectmanager'
+    | '/requests'
     | '/reset-password'
     | '/root'
     | '/teamleader'
@@ -244,6 +256,7 @@ export interface RootRouteChildren {
   ManagementRoute: typeof ManagementRoute
   PlatformRoute: typeof PlatformRoute
   ProjectmanagerRoute: typeof ProjectmanagerRoute
+  RequestsRoute: typeof RequestsRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   RootRoute: typeof RootRoute
   TeamleaderRoute: typeof TeamleaderRoute
@@ -337,6 +350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectmanagerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/requests': {
+      id: '/requests'
+      path: '/requests'
+      fullPath: '/requests'
+      preLoaderRoute: typeof RequestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reset-password': {
       id: '/reset-password'
       path: '/reset-password'
@@ -388,6 +408,7 @@ const rootRouteChildren: RootRouteChildren = {
   ManagementRoute: ManagementRoute,
   PlatformRoute: PlatformRoute,
   ProjectmanagerRoute: ProjectmanagerRoute,
+  RequestsRoute: RequestsRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   RootRoute: RootRoute,
   TeamleaderRoute: TeamleaderRoute,

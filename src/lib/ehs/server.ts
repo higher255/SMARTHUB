@@ -1014,7 +1014,13 @@ export type OrgBrand = {
   primaryColor: string | null;
   currency: string;
   vatRate: number;
-  managerApprovalLimit: number;
+  businessAddress: string | null;
+  businessBankName: string | null;
+  businessBankAccountName: string | null;
+  businessBankAccountNumber: string | null;
+  businessBankSwift: string | null;
+  businessTin: string | null;
+  businessVrn: string | null;
   modules: string[];
   booksLockedUntil: string | null;
   plan: string;
@@ -1025,7 +1031,9 @@ export type OrgBrand = {
 
 function mapOrg(r: {
   id: string; name: string; display_name: string | null; logo_url: string | null; dashboard_cover_url: string | null; primary_color: string | null;
-  currency: string; vat_rate: string | number; manager_approval_limit: string | number; modules: string[] | null; books_locked_until: string | null;
+  currency: string; vat_rate: string | number; business_address: string | null; business_bank_name: string | null; business_bank_account_name: string | null;
+  business_bank_account_number: string | null; business_bank_swift: string | null; business_tin: string | null; business_vrn: string | null;
+  manager_approval_limit: string | number; modules: string[] | null; books_locked_until: string | null;
   plan: string; max_users: number; paid_until: string | null; enforce_budget: boolean;
 }): OrgBrand {
   return {
@@ -1037,7 +1045,13 @@ function mapOrg(r: {
     primaryColor: r.primary_color,
     currency: r.currency,
     vatRate: Number(r.vat_rate),
-    managerApprovalLimit: Number(r.manager_approval_limit),
+    businessAddress: r.business_address,
+    businessBankName: r.business_bank_name,
+    businessBankAccountName: r.business_bank_account_name,
+    businessBankAccountNumber: r.business_bank_account_number,
+    businessBankSwift: r.business_bank_swift,
+    businessTin: r.business_tin,
+    businessVrn: r.business_vrn,
     modules: r.modules ?? [],
     booksLockedUntil: r.books_locked_until,
     plan: r.plan,
@@ -1054,6 +1068,7 @@ export const getOrgBrand = createServerFn({ method: "GET" })
     const sql = await getSql();
     const profile = await requireProfile(context.userId);
     const rows = await sql<Parameters<typeof mapOrg>[0]>`select id, name, display_name, logo_url, dashboard_cover_url, primary_color, currency, vat_rate,
+        business_address, business_bank_name, business_bank_account_name, business_bank_account_number, business_bank_swift, business_tin, business_vrn,
         manager_approval_limit, modules, books_locked_until::text as books_locked_until,
         plan, max_users, paid_until::text as paid_until, enforce_budget
       from organizations where id = ${profile.organizationId}`;
@@ -1070,7 +1085,13 @@ export const updateCompanySettings = createServerFn({ method: "POST" })
       primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).or(z.literal("")).optional(),
       currency: z.enum(["TZS", "USD"]).optional(),
       vatRate: z.number().min(0).max(30).optional(),
-      managerApprovalLimit: z.number().min(0).optional(),
+      businessAddress: z.string().max(500).optional(),
+      businessBankName: z.string().max(160).optional(),
+      businessBankAccountName: z.string().max(160).optional(),
+      businessBankAccountNumber: z.string().max(80).optional(),
+      businessBankSwift: z.string().max(40).optional(),
+      businessTin: z.string().max(60).optional(),
+      businessVrn: z.string().max(60).optional(),
       booksLockedUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).or(z.literal("")).optional(),
       enforceBudget: z.boolean().optional(),
     }).parse(input),
@@ -1086,7 +1107,13 @@ export const updateCompanySettings = createServerFn({ method: "POST" })
         primary_color = case when ${data.primaryColor ?? null}::text is null then primary_color else nullif(${data.primaryColor ?? null}::text, '') end,
         currency = coalesce(${data.currency ?? null}::text, currency),
         vat_rate = coalesce(${data.vatRate ?? null}::numeric, vat_rate),
-        manager_approval_limit = coalesce(${data.managerApprovalLimit ?? null}::numeric, manager_approval_limit),
+        business_address = case when ${data.businessAddress ?? null}::text is null then business_address else nullif(${data.businessAddress ?? null}::text, '') end,
+        business_bank_name = case when ${data.businessBankName ?? null}::text is null then business_bank_name else nullif(${data.businessBankName ?? null}::text, '') end,
+        business_bank_account_name = case when ${data.businessBankAccountName ?? null}::text is null then business_bank_account_name else nullif(${data.businessBankAccountName ?? null}::text, '') end,
+        business_bank_account_number = case when ${data.businessBankAccountNumber ?? null}::text is null then business_bank_account_number else nullif(${data.businessBankAccountNumber ?? null}::text, '') end,
+        business_bank_swift = case when ${data.businessBankSwift ?? null}::text is null then business_bank_swift else nullif(${data.businessBankSwift ?? null}::text, '') end,
+        business_tin = case when ${data.businessTin ?? null}::text is null then business_tin else nullif(${data.businessTin ?? null}::text, '') end,
+        business_vrn = case when ${data.businessVrn ?? null}::text is null then business_vrn else nullif(${data.businessVrn ?? null}::text, '') end,
         books_locked_until = case when ${data.booksLockedUntil ?? null}::text is null then books_locked_until else nullif(${data.booksLockedUntil ?? null}::text, '')::date end,
         enforce_budget = coalesce(${data.enforceBudget ?? null}::boolean, enforce_budget)
       where id = ${profile.organizationId}`;

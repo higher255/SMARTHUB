@@ -63,8 +63,6 @@ export function pathForRole(role: string): string {
       return "/hr";
     case "Client":
       return "/client";
-    case "Driver":
-      return "/driver";
     default:
       return "/dashboard";
   }

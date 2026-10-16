@@ -59,7 +59,7 @@ export const ROLE_PERMISSIONS: Record<EhsRole, Permission[]> = {
     "attendance.view",
   ],
   Manager: [
-    ...STAFF, "data.view_org", "projects.manage", "management.view", "ehs.view_org", "finance.view", "finance.endorse",
+    ...STAFF, "data.view_org", "projects.manage", "management.view", "ehs.view_org", "finance.view",
     "accounts.view", "accounts.reports", "announce.post", "ncr.raise", "hours.record", "people.view",
     "budgets.manage", "leave.approve", "attendance.view",
   ],
@@ -133,8 +133,8 @@ export const WORKSPACES: Workspace[] = [
   { path: "/teamleader", label: "Team & site", icon: "users", group: "Operations", anyOf: ["teamleader.dashboard"] },
   { path: "/management", label: "Management", icon: "gauge", group: "Company", anyOf: ["management.view"] },
   { path: "/projectmanager", label: "Projects", icon: "kanban", group: "Operations", anyOf: ["projects.manage"] },
-  { path: "/driver", label: "Fleet", icon: "truck", group: "Operations", roles: ["Driver"], anyOf: ["fleet.manage", "fleet.driver_dashboard"] },
   { path: "/finance", label: "Finance", icon: "wallet", group: "Money", anyOf: ["finance.view", "finance.approve", "accounts.view"] },
+  { path: "/requests", label: "Requests", icon: "wallet", group: "Money", anyOf: ["finance.request"] },
   { path: "/ehs", label: "Safety (EHS)", icon: "hardhat", group: "Safety", anyOf: ["ehs.manage", "ehs.view_org"] },
   { path: "/hr", label: "People", icon: "users", group: "People", anyOf: ["hr.manage", "leave.approve", "attendance.view"] },
   { path: "/client", label: "Client view", icon: "briefcase", group: "Company", roles: ["Client"] },
@@ -164,5 +164,5 @@ export function canAccessPath(subject: AccessSubject, path: string): boolean {
 
 /** Roles that the administrator may assign to users. */
 export const ASSIGNABLE_ROLES: EhsRole[] = [
-  "Admin", "EHS_Officer", "Manager", "Project_Manager", "Finance", "HR", "Team_Leader", "Team_Member", "Driver", "Employee", "Client",
+  "Admin", "EHS_Officer", "Manager", "Project_Manager", "Finance", "HR", "Team_Leader", "Team_Member", "Employee", "Client",
 ];

@@ -5,7 +5,7 @@ import { AttachmentPicker } from "@/components/attachments";
 import { uploadPending, type PendingFile } from "@/lib/ehs/attachments";
 import { Modal, Notice, btnGhost, btnPrimary, inputCls } from "@/components/ui-kit";
 import { createFinanceRequest } from "@/lib/ehs/finance";
-import { MONEY_TYPES, moneyTypeById, departmentNeedsReview, type Department } from "@/lib/ehs/request-types";
+import { MONEY_TYPES, moneyTypeById, type Department } from "@/lib/ehs/request-types";
 import { INSPECTION_ITEMS, createJourneyPlan, listVehicleOptions, submitInspection } from "@/lib/ehs/requests-hub";
 import { createPermit } from "@/lib/ehs/server";
 import { formatMoney, todayIso } from "@/lib/ui/format";
@@ -17,21 +17,21 @@ type Project = { id: number; name: string };
 export type OtherKind = "hazard" | "leave";
 type Pick = { kind: "money"; typeId: string } | { kind: "permit" | "journey" | "inspection" };
 
-const ROUTE: Record<Department, string> = { Finance: "Goes to Finance", Projects: "Goes to Finance", Fleet: "Fleet review, then Finance", EHS: "EHS review, then Finance" };
+const ROUTE: Record<Department, string> = { Finance: "Goes directly to Finance", Projects: "Goes directly to Finance", Transport: "Goes directly to Finance", EHS: "Goes directly to Finance" };
 const TYPE_ICON: Record<string, typeof Fuel> = { Fuel, "Vehicle repair": Wrench, Transport: Car, PPE: HardHat, "First aid": HeartPulse, "Safety training": ClipboardCheck, Materials: Hammer, Tools: Wrench, Labour: Hammer, Other: Wallet };
 
 /** One place to ask for anything. Each choice goes to the department that handles it. */
-export function RequestCenter({ projects, currency, limit, onClose, onDone, onOther }: {
-  projects: Project[]; currency: string; limit: number; onClose: () => void; onDone: (m: string) => void; onOther: (k: OtherKind) => void;
+export function RequestCenter({ projects, currency, onClose, onDone, onOther }: {
+  projects: Project[]; currency: string; onClose: () => void; onDone: (m: string) => void; onOther: (k: OtherKind) => void;
 }) {
   const [pick, setPick] = useState<Pick | null>(null);
-  if (pick?.kind === "money") return <MoneyForm typeId={pick.typeId} projects={projects} currency={currency} limit={limit} onClose={() => setPick(null)} onDone={onDone} />;
+  if (pick?.kind === "money") return <MoneyForm typeId={pick.typeId} projects={projects} currency={currency} onClose={() => setPick(null)} onDone={onDone} />;
   if (pick?.kind === "permit") return <PermitForm onClose={() => setPick(null)} onDone={onDone} />;
   if (pick?.kind === "journey") return <JourneyForm onClose={() => setPick(null)} onDone={onDone} />;
   if (pick?.kind === "inspection") return <InspectionForm onClose={() => setPick(null)} onDone={onDone} />;
 
   const groups: { title: string; dept: Department }[] = [
-    { title: "Fleet: fuel, repairs and travel", dept: "Fleet" },
+    { title: "Transport and vehicle costs", dept: "Transport" },
     { title: "Safety: PPE and first aid", dept: "EHS" },
     { title: "Site: materials, tools and labour", dept: "Projects" },
     { title: "Anything else", dept: "Finance" },
@@ -74,7 +74,7 @@ export function RequestCenter({ projects, currency, limit, onClose, onDone, onOt
 function Back({ onClose }: { onClose: () => void }) { return <button type="button" className={btnGhost} onClick={onClose}>Back</button>; }
 
 // ------------------------------------------------------------ money
-function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typeId: string; projects: Project[]; currency: string; limit: number; onClose: () => void; onDone: (m: string) => void }) {
+function MoneyForm({ typeId, projects, currency, onClose, onDone }: { typeId: string; projects: Project[]; currency: string; onClose: () => void; onDone: (m: string) => void }) {
   const [type, setType] = useState(typeId);
   const t = moneyTypeById(type);
   const [projectId, setProjectId] = useState<number | "">("");
@@ -112,12 +112,11 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
             projectId: projectId ? Number(projectId) : null, title: `${t.label}: ${title}`.slice(0, 200), description: details, amount, priority, category: t.category,
           } });
           const failed = await uploadPending("finance_request", r.requestId, files);
-          const route = departmentNeedsReview(t.department) ? `${t.department} reviews it first, then finance.` : r.requiresManager ? "A manager endorses it, then finance." : "It went to finance.";
-          onDone(`${r.requestNumber} sent. ${route}${emailDeliveryNote(r.emailStatus)}${failed ? ` ${failed} file(s) could not be uploaded.` : ""}`);
+          onDone(`${r.requestNumber} sent directly to Finance for review.${emailDeliveryNote(r.emailStatus)}${failed ? ` ${failed} file(s) could not be uploaded.` : ""}`);
         } catch (x) { setErr(errorMessage(x)); } finally { setBusy(false); }
       }}>
         <Notice msg={err} tone="danger" />
-        <p className="rounded-lg bg-accent/5 px-3 py-2 text-xs text-fg-muted">{ROUTE[t.department]}. {departmentNeedsReview(t.department) ? "Include enough detail for the reviewer to check the price." : ""}</p>
+        <p className="rounded-lg bg-accent/5 px-3 py-2 text-xs text-fg-muted">{ROUTE[t.department]}. Finance reviews every amount and will approve, reject, or request more information.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>{MONEY_TYPES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select></Field>
           <Field label="Project (optional)"><select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className={inputCls}><option value="">No project · Company / office</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
@@ -141,7 +140,7 @@ function MoneyForm({ typeId, projects, currency, limit, onClose, onDone }: { typ
             </div>
           ) : <Field label="Total price"><MoneyInput value={total} onChange={setTotal} className={inputCls} /></Field>}
           <p className="mt-2 text-sm font-semibold tabular-nums">Total: {formatMoney(amount, currency)}</p>
-          {limit > 0 && amount > limit ? <p className="mt-1 text-xs text-warn">Above {formatMoney(limit, currency)}: a manager endorses it before finance.</p> : null}
+          <p className="mt-1 text-xs text-fg-muted">There is no request amount ceiling. Finance reviews the request and supporting details.</p>
         </div>
         <Field label="Priority"><select value={priority} onChange={(e) => setPriority(e.target.value as typeof priority)} className={inputCls}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></Field>
         <AttachmentPicker files={files} onChange={setFiles} onError={setErr} />

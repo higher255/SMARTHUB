@@ -149,7 +149,7 @@ function Fleet({ profile }: { profile: Profile }) {
 
       {dialog === "journey" ? <JourneyForm onClose={() => setDialog(null)} onDone={finish} /> : null}
       {dialog === "inspection" ? <InspectionForm onClose={() => setDialog(null)} onDone={finish} /> : null}
-      {dialog === "center" ? <RequestCenter projects={projects} currency={brand?.currency ?? "TZS"} limit={brand?.managerApprovalLimit ?? 0} onClose={() => setDialog(null)} onDone={finish} onOther={() => setDialog(null)} /> : null}
+          {dialog === "center" ? <RequestCenter projects={projects} currency={brand?.currency ?? "TZS"} onClose={() => setDialog(null)} onDone={finish} onOther={() => setDialog(null)} /> : null}
       {dialog && typeof dialog === "object" ? <MileageDialog vehicle={dialog.mileage} onClose={() => setDialog(null)} onDone={finish} /> : null}
       {item ? <ItemModal profile={profile} item={item} onClose={() => setItem(null)} onChanged={(m) => { setMsg(m); void load(); }} /> : null}
     </main>

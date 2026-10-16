@@ -34,7 +34,7 @@ function DashboardPage() {
 
 type Project = { id: number; name: string };
 
-type WorkFeatureKey = "vehicle" | "attendance" | "health" | "leave" | "notices" | "safety";
+type WorkFeatureKey = "attendance" | "health" | "notices";
 type WorkFeatureConfig = { key: WorkFeatureKey; title: string; Icon: LucideIcon; unread: number; detail?: string };
 
 function WorkFeatureRail({ features, expanded, onToggle }: { features: WorkFeatureConfig[]; expanded: Record<WorkFeatureKey, boolean>; onToggle: (key: WorkFeatureKey) => void }) {
@@ -52,31 +52,14 @@ function WorkFeatureRail({ features, expanded, onToggle }: { features: WorkFeatu
 }
 
 function MyWork({ profile }: { profile: Profile }) {
-  const { request: requestId } = Route.useSearch();
   const brand = useOrgBrand();
-  const canRequest = can(profile, "finance.request");
-  // Finance staff process requests for the company; don't let department-only
-  // Finance accounts submit requests if their role grants the generic staff permission.
-  const isFinanceStaff = profile.role === "Finance" || profile.department.trim().toLowerCase() === "finance";
-  const canRequestMoney = canRequest && !isFinanceStaff;
-  const canHours = can(profile, "hours.record");
-  const canNcr = can(profile, "ncr.raise");
-
-  const [requests, setRequests] = useState<FinanceRequest[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [health, setHealth] = useState<HealthRow[]>([]);
   const [notices, setNotices] = useState<Announcement[]>([]);
   const [attendance, setAttendance] = useState<Awaited<ReturnType<typeof getMyAttendance>> | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [vehicleDone, setVehicleDone] = useState(false);
-  const [safetyDone, setSafetyDone] = useState(false);
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
-  const [expandedFeatures, setExpandedFeatures] = useState<Record<WorkFeatureKey, boolean>>({ vehicle: false, attendance: false, health: false, leave: false, notices: false, safety: false });
+  const [expandedFeatures, setExpandedFeatures] = useState<Record<WorkFeatureKey, boolean>>({ attendance: false, health: false, notices: false });
   const [msg, setMsg] = useState("");
-  const [detail, setDetail] = useState<FinanceRequest | null>(null);
-  const [dialog, setDialog] = useState<null | "request" | "hazard" | "hours" | "ncr" | "leave" | "report">(null);
-  const [leaveKey, setLeaveKey] = useState(0);
-  const openedLinkedRequest = useRef<number | null>(null);
   const [clockNow, setClockNow] = useState(() => new Date());
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 60_000);
@@ -84,24 +67,25 @@ function MyWork({ profile }: { profile: Profile }) {
   }, []);
 
   const load = useCallback(async () => {
-    const [r, h, n, a, alerts] = await Promise.all([
-      canRequestMoney ? listFinanceRequests({ data: { mine: true } }).catch(() => []) : Promise.resolve([]),
+    const [h, n, a, alerts] = await Promise.all([
       listHealth().catch(() => []),
       listAnnouncements().catch(() => []),
       getMyAttendance().catch(() => null),
       listNotifications().catch(() => []),
     ]);
-    setRequests(r);
     setHealth(h);
     setNotices(n.slice(0, 4));
     setAttendance(a);
     setNotifications(alerts);
     setDashboardLoaded(true);
-    setDetail((cur) => (cur ? r.find((x) => x.id === cur.id) ?? cur : cur));
-  }, [canRequestMoney]);
+  }, []);
   useLive(load, 20000);
 
-  const todayHealth = health.find((row) => new Date(row.createdAt).toDateString() === new Date().toDateString());
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(clockNow);
+  const todayHealth = health.find((row) => {
+    const date = new Date(String(row.createdAt));
+    return !Number.isNaN(date.getTime()) && new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date) === todayKey;
+  });
   const unreadCount = (...types: string[]) => notifications.filter((item) => !item.read_at && types.includes(item.type)).length;
   const featureStorageKey = (key: WorkFeatureKey) => `smarthub:mywork:${profile.userId}:${todayIso()}:${key}`;
   const toggleFeature = (key: WorkFeatureKey) => setExpandedFeatures((current) => {
@@ -116,7 +100,7 @@ function MyWork({ profile }: { profile: Profile }) {
   useEffect(() => {
     try {
       const saved = Object.fromEntries(([
-        "vehicle", "attendance", "health", "leave", "notices", "safety",
+        "attendance", "health", "notices",
       ] as WorkFeatureKey[]).flatMap((key) => {
         const value = localStorage.getItem(featureStorageKey(key));
         return value === null ? [] : [[key, value === "open"]];
@@ -134,21 +118,6 @@ function MyWork({ profile }: { profile: Profile }) {
     collapseIfUnchanged("health", Boolean(todayHealth));
     collapseIfUnchanged("notices", dashboardLoaded && notices.length === 0);
   }, [attendance?.today, todayHealth, dashboardLoaded, notices.length, profile.userId]);
-  useEffect(() => {
-    if (!requestId || requestId === openedLinkedRequest.current) return;
-    const request = requests.find((item) => item.id === requestId);
-    if (request) {
-      setDetail(request);
-      openedLinkedRequest.current = requestId;
-    }
-  }, [requestId, requests]);
-  useLive(async () => {
-    if (canRequest) setProjects(await listProjectsForRequests().catch(() => []));
-  }, 120000);
-
-  const open = requests.filter((r) => ["Submitted", "Under Review", "Approved"].includes(r.status));
-  const paidThisMonth = requests.filter((r) => r.status === "Paid" && r.paidAt && new Date(r.paidAt).getMonth() === new Date().getMonth()).reduce((s, r) => s + r.amount, 0);
-  const currency = brand?.currency ?? "TZS";
   const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", hourCycle: "h23" }).format(clockNow));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const timeLabel = new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(clockNow);
@@ -156,72 +125,24 @@ function MyWork({ profile }: { profile: Profile }) {
   const welcome = checkInTime ? `${greeting}. You checked in at ${checkInTime} — have a focused and productive day. It’s ${timeLabel}.` : `${greeting}. Karibu kazini leo. It’s ${timeLabel}; start by checking in when you’re ready.`;
   const attendanceDetail = attendance?.today
     ? attendance.today.checkOut
-      ? `In ${new Date(attendance.today.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · out ${new Date(attendance.today.checkOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-      : `Checked in ${new Date(attendance.today.checkIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · checkout pending`
+      ? `In ${new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" }).format(new Date(attendance.today.checkIn))} · out ${new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" }).format(new Date(attendance.today.checkOut))}`
+      : `Checked in ${new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" }).format(new Date(attendance.today.checkIn))} · checkout pending`
     : "Not checked in";
   const workFeatures: WorkFeatureConfig[] = [
-    ...(canRequest ? [{ key: "vehicle" as const, title: "Vehicle", Icon: Car, unread: unreadCount("after_hours_vehicle"), detail: vehicleDone ? "Plan saved" : "Today" }] : []),
     { key: "attendance", title: "Attendance", Icon: ClipboardCheck, unread: unreadCount("attendance"), detail: attendanceDetail },
     { key: "health", title: "Fitness", Icon: Activity, unread: unreadCount("health"), detail: todayHealth?.fitness ?? "Not declared" },
-    { key: "leave", title: "Leave", Icon: CalendarDays, unread: unreadCount("leave"), detail: "Requests and decisions" },
     { key: "notices", title: "Notice board", Icon: Bell, unread: unreadCount("message"), detail: notices.length ? `${notices.length} updates` : "No updates" },
-    { key: "safety", title: "Safety & wellbeing", Icon: ShieldCheck, unread: unreadCount("safety_observation", "wellbeing", "incident"), detail: safetyDone ? "Updated" : "Reports and challenges" },
   ];
 
   return (
     <AppShell title={`Hello, ${profile.fullName.split(" ")[0] || "team"} · Karibu kazini leo`} subtitle={welcome} coverImage={brand?.dashboardCoverUrl ?? ""} role={profile.role}>
       <Notice msg={msg} onClose={() => setMsg("")} />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {canRequestMoney ? <Kpi label="Open requests" value={open.length} hint={open.length ? formatMoney(open.reduce((s, r) => s + r.amount, 0), currency) : "Nothing waiting"} /> : null}
-        {canRequestMoney ? <Kpi label="Paid this month" value={formatMoney(paidThisMonth, currency)} tone="ok" /> : null}
-        <Kpi label="Today's fitness" value={health[0] && new Date(health[0].createdAt).toDateString() === new Date().toDateString() ? health[0].fitness : "Not declared"} tone={health[0]?.fitness === "Unfit" ? "danger" : undefined} />
-      </div>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        {canRequestMoney ? <button type="button" className={btnPrimary} onClick={() => setDialog("request")}><Wallet className="size-4" /> Request money</button> : null}
-        <button type="button" className={btnGhost} onClick={() => setDialog("hazard")}><AlertTriangle className="size-4" /> Report hazard or incident</button>
-        <button type="button" className={btnGhost} onClick={() => setDialog("leave")}><CalendarDays className="size-4" /> Request leave</button>
-        {canHours ? <button type="button" className={btnGhost} onClick={() => setDialog("report")}><FileText className="size-4" /> Daily site report</button> : null}
-        {canHours ? <button type="button" className={btnGhost} onClick={() => setDialog("hours")}><ClockIcon className="size-4" /> Record crew hours</button> : null}
-        {canNcr ? <button type="button" className={btnGhost} onClick={() => setDialog("ncr")}><Flag className="size-4" /> Raise NCR</button> : null}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-5">
-        {canRequestMoney ? (
-          <div className="lg:col-span-3">
-            <Panel title="My requests">
-              {requests.length === 0 ? (
-                <EmptyState title="No requests yet" hint="Need money for materials, transport or labour on site? Send a request and it goes straight to the right approver." />
-              ) : (
-                <ul className="divide-y divide-border">
-                  {requests.map((r) => (
-                    <li key={r.id}>
-                      <button type="button" onClick={() => setDetail(r)} className="flex w-full items-center gap-3 py-3 text-left transition hover:bg-bg-subtle/60">
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{r.title}</span>
-                          <span className="block text-xs text-fg-muted">{r.requestNumber} · {formatDate(r.createdAt)}</span>
-                        </span>
-                        <span className="text-right">
-                          <span className="block text-sm font-semibold tabular-nums">{formatMoney(r.amount, r.currency)}</span>
-                          <StatusBadge status={r.status} />
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
-          </div>
-        ) : null}
-
-        <div className={`space-y-5 ${canRequestMoney ? "lg:col-span-2" : "lg:col-span-5"}`}>
+      <div className="space-y-6">
           <WorkFeatureRail features={workFeatures} expanded={expandedFeatures} onToggle={toggleFeature} />
           {!Object.values(expandedFeatures).some(Boolean) ? <p className="text-sm text-fg-muted">Select a card or click to view its details.</p> : null}
-          {canRequest && expandedFeatures.vehicle ? <AfterHoursVehiclePanel profile={profile} mode="mine" onCompleted={() => { setVehicleDone(true); collapseFeature("vehicle"); }} /> : null}
-          {expandedFeatures.attendance ? <AttendanceCard projects={projects} onActionComplete={() => collapseFeature("attendance")} /> : null}
+          {expandedFeatures.attendance ? <AttendanceCard projects={[]} onActionComplete={() => collapseFeature("attendance")} /> : null}
           {expandedFeatures.health ? <HealthCard current={todayHealth} onSaved={(m) => { setMsg(m); if (m === "Declaration saved") collapseFeature("health"); void load(); }} /> : null}
-          {expandedFeatures.leave ? <MyLeave userId={profile.userId} refreshKey={leaveKey} /> : null}
           {expandedFeatures.notices ? <Panel title="Notice board">
             {notices.length === 0 ? <p className="text-sm text-fg-muted">No announcements.</p> : (
               <ul className="space-y-3">
@@ -231,40 +152,8 @@ function MyWork({ profile }: { profile: Profile }) {
               </ul>
             )}
           </Panel> : null}
-          {expandedFeatures.safety ? <SafetyHubWorkspace profile={profile} compact onActionComplete={() => { setSafetyDone(true); collapseFeature("safety"); }} /> : null}
-        </div>
+          <SafetyHubWorkspace profile={profile} compact showChallenges={false} />
       </div>
-
-      {dialog === "request" && canRequestMoney ? (
-        <RequestDialog projects={projects} limit={brand?.managerApprovalLimit ?? 0} currency={currency} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); void load(); }} />
-      ) : null}
-      {dialog === "hazard" ? <HazardDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
-      {dialog === "leave" ? <LeaveDialog onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); setLeaveKey((k) => k + 1); collapseFeature("leave"); }} /> : null}
-      {dialog === "report" ? <SiteReportDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
-      {dialog === "hours" ? <HoursDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
-      {dialog === "ncr" ? <NcrDialog projects={projects} onClose={() => setDialog(null)} onDone={(m) => { setDialog(null); setMsg(m); }} /> : null}
-
-      {detail ? (
-        <Modal title={`${detail.requestNumber} · ${detail.title}`} onClose={() => setDetail(null)}>
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-lg font-semibold tabular-nums">{formatMoney(detail.amount, detail.currency)}</p>
-            <StatusBadge status={detail.status} />
-          </div>
-          {detail.description ? <p className="mb-4 text-sm text-fg-muted">{detail.description}</p> : null}
-          <RequestTimeline request={detail} />
-          {["Submitted"].includes(detail.status) ? (
-            <button
-              type="button"
-              className={`${btnGhost} mt-5`}
-              onClick={async () => {
-                try { await cancelFinanceRequest({ data: detail.id }); setDetail(null); setMsg("Request cancelled"); void load(); } catch (e) { setMsg(errorMessage(e)); }
-              }}
-            >
-              Cancel this request
-            </button>
-          ) : null}
-        </Modal>
-      ) : null}
     </AppShell>
   );
 }
@@ -317,7 +206,7 @@ function HealthCard({ current, onSaved }: { current?: HealthRow; onSaved: (m: st
   );
 }
 
-function RequestDialog({ projects, limit, currency, onClose, onDone }: { projects: Project[]; limit: number; currency: string; onClose: () => void; onDone: (m: string) => void }) {
+function RequestDialog({ projects, currency, onClose, onDone }: { projects: Project[]; currency: string; onClose: () => void; onDone: (m: string) => void }) {
   const [projectId, setProjectId] = useState<number | "">("");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<"Material" | "Equipment" | "Labor" | "Transport" | "Other">("Material");
@@ -327,7 +216,6 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const value = Number(amount);
-  const needsManager = limit > 0 && value > limit;
 
   return (
     <Modal title="Request money" onClose={onClose}>
@@ -339,7 +227,7 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
           setBusy(true);
           try {
             const r = await createFinanceRequest({ data: { projectId: projectId === "" ? null : Number(projectId), title, category, amount: value, priority, description: description || undefined } });
-            onDone((r.requiresManager ? `${r.requestNumber} sent to a manager first, then finance` : `${r.requestNumber} sent to finance`) + emailDeliveryNote(r.emailStatus));
+            onDone(`${r.requestNumber} sent directly to Finance` + emailDeliveryNote(r.emailStatus));
           } catch (e2) { setErr(errorMessage(e2)); } finally { setBusy(false); }
         }}
       >
@@ -365,7 +253,6 @@ function RequestDialog({ projects, limit, currency, onClose, onDone }: { project
           </Field>
         </div>
         <Field label={`Amount (${currency})`}><MoneyInput required value={amount} onChange={setAmount} className={inputCls} /></Field>
-        {needsManager ? <p className="text-xs text-warn">Above {formatMoney(limit, currency)}: a manager endorses this before finance approves.</p> : null}
         <Field label={projectId ? "Details (optional)" : "Work / purpose details (required)"}><textarea required={!projectId} value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder={!projectId ? "Explain what work this supports and why the money is needed" : "Add useful details for the approver"} className={inputCls} /></Field>
         <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}><Send className="size-4" /> {busy ? "Sending…" : "Send request"}</button>
       </form>

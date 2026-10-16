@@ -25,8 +25,8 @@ export const getManagementOverview = createServerFn({ method: "GET" })
 
     // ---- requests pipeline (always visible to management)
     const pipeline = await sql<Record<string, string | number>>`select
-        count(*) filter (where status = 'Submitted' and requires_manager)::int as awaiting_endorse,
-        count(*) filter (where status = 'Under Review' or (status = 'Submitted' and not requires_manager))::int as awaiting_approval,
+        0::int as awaiting_endorse,
+        count(*) filter (where status in ('Submitted','Under Review'))::int as awaiting_approval,
         count(*) filter (where status = 'Approved')::int as awaiting_payment,
         coalesce(sum(amount) filter (where status in ('Submitted','Under Review')),0) as pending_amount,
         coalesce(sum(amount) filter (where status = 'Approved'),0) as approved_amount,
@@ -69,7 +69,6 @@ export const getManagementOverview = createServerFn({ method: "GET" })
     // ---- decisions waiting on this person
     const p = pipeline[0]!;
     const inbox: { key: string; label: string; count: number; link: string }[] = [];
-    if (can(profile, "finance.endorse") && num(p.awaiting_endorse) > 0) inbox.push({ key: "endorse", label: "Finance requests to endorse", count: num(p.awaiting_endorse), link: "/finance" });
     if (can(profile, "finance.approve") && num(p.awaiting_approval) > 0) inbox.push({ key: "approve", label: "Finance requests to approve", count: num(p.awaiting_approval), link: "/finance" });
     if (can(profile, "finance.pay") && num(p.awaiting_payment) > 0) inbox.push({ key: "pay", label: "Approved requests to pay", count: num(p.awaiting_payment), link: "/finance" });
     if (can(profile, "permits.approve") && (permits[0]?.c ?? 0) > 0) inbox.push({ key: "permits", label: "Permits to work to approve", count: permits[0]!.c, link: "/ehs" });
