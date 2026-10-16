@@ -4,12 +4,14 @@ import { RoleGate } from "@/components/role-gate";
 import { Notice } from "@/components/ui-kit";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
 import { HseWorkspace } from "@/components/hse/hse-workspace";
-import { HealthStatusBoard } from "@/components/daily/daily";
+import { HealthStatusBoard, SiteReportsPanel } from "@/components/daily/daily";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AppShell, Panel, StatCard, primaryBtn, inputClass, Field, LogoutButton } from "@/components/app-shell";
 import { ROLE_LABELS, type EhsRole } from "@/lib/ehs/roles";
-import { ASSIGNABLE_ROLES } from "@/lib/ehs/access";
+import { ASSIGNABLE_ROLES, can } from "@/lib/ehs/access";
 import { ThemeToggle } from "@/components/theme-provider";
+import { FinanceRequestWorkspace } from "@/components/requests/finance-request-workspace";
+import { listInbox, listActiveJourneyLocations, getJourneyOverview, updateJourneyStatus, type InboxItem, type ActiveJourneyLocation } from "@/lib/ehs/requests-hub";
 import {
   listHealth,
   listIncidents,
@@ -17,6 +19,11 @@ import {
   listVehicles,
   listPermits,
   listCAPAs,
+  createPermit,
+  approvePermit,
+  transitionPermit,
+  listCertificates,
+  createCertificate,
   listAllUsers,
   getDashboardStats,
   createUser,
@@ -30,6 +37,7 @@ import {
   type Vehicle,
   type Permit,
   type CAPA,
+  type Certificate,
 } from "@/lib/ehs/server";
 import type { Profile } from "@/lib/ehs/server";
 import {
@@ -49,13 +57,11 @@ import {
   Settings,
   Bell,
   Search,
-  Filter,
   Download,
   Eye,
   Edit,
   Trash2,
   Plus,
-  ChevronDown,
   Truck,
   Wrench,
   UserX,
@@ -76,7 +82,7 @@ import {
   Unlock,
   Shield,
   PieChart,
-  Printer, ShieldCheck } from "lucide-react";
+  Printer, ShieldCheck, Wallet } from "lucide-react";
 
 export const Route = createFileRoute("/ehs")({ component: AdminPage });
 
@@ -230,11 +236,12 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [permits, setPermits] = useState<Permit[]>([]);
   const [capaList, setCapaList] = useState<CAPA[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "overview" | "fleet" | "ptw" | "hse" | "health" | "notices" | "users" | "reports" | "settings"
+    "overview" | "fleet" | "journeys" | "ptw" | "hse" | "health" | "training" | "money" | "notices" | "users" | "reports" | "settings"
   >("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
@@ -243,6 +250,12 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [reportPeriod, setReportPeriod] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [showPermitForm, setShowPermitForm] = useState(false);
+  const [permitDraft, setPermitDraft] = useState({ type: "Hot Work", title: "", location: "", description: "", startDate: "", endDate: "", riskLevel: "Medium" });
+  const [trainingDraft, setTrainingDraft] = useState({ userId: "", certificateType: "", certificateNumber: "", expiresAt: "", fileUrl: "" });
+  const [journeyInbox, setJourneyInbox] = useState<InboxItem[]>([]);
+  const [activeJourneyLocations, setActiveJourneyLocations] = useState<ActiveJourneyLocation[]>([]);
+  const [journeyOverview, setJourneyOverview] = useState({ submitted: 0, active: 0 });
 
   // User Management State
   const [showAddUserModal, setShowAddUserModal] = useState(false);
@@ -257,7 +270,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const fetchData = async () => {
     setRefreshing(true);
     try {
-      const [projectsData, incidentsData, healthData, vehiclesData, permitsData, capaData, usersData] = await Promise.all([
+      const [projectsData, incidentsData, healthData, vehiclesData, permitsData, capaData, usersData, certificatesData, inboxData, locationsData, journeyOverviewData] = await Promise.all([
         listProjects(),
         listIncidents(),
         listHealth(),
@@ -265,6 +278,10 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         listPermits().catch(() => []),
         listCAPAs().catch(() => []),
         listAllUsers().catch(() => []),
+        listCertificates().catch(() => []),
+        listInbox({}).catch(() => []),
+        listActiveJourneyLocations().catch(() => []),
+        getJourneyOverview().catch(() => ({ submitted: 0, active: 0 })),
       ]);
       setProjects(projectsData || []);
       setIncidents(incidentsData || []);
@@ -273,6 +290,10 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       setPermits(permitsData || []);
       setCapaList(capaData || []);
       setUsers(usersData || []);
+      setCertificates(certificatesData || []);
+      setJourneyInbox(inboxData || []);
+      setActiveJourneyLocations(locationsData || []);
+      setJourneyOverview(journeyOverviewData);
     } catch (error) {
       console.error("Error fetching admin data:", error);
       setMsg("Failed to load data. Please refresh.");
@@ -300,7 +321,11 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       resolvedIncidents: incidents.filter((i) => i.status === "Resolved" || i.status === "Closed").length,
       totalVehicles: vehicles.length,
       activeVehicles: vehicles.filter((v) => v.status === "Active").length,
-      pendingPermits: permits.filter((p) => p.status === "Pending").length,
+      pendingPermits: permits.filter((p) => ["Pending", "Under Review"].includes(p.status)).length,
+      activeJourneys: journeyOverview.active,
+      overdueInspections: vehicles.filter((v) => v.nextInspectionDate && new Date(v.nextInspectionDate) < new Date()).length,
+      trainingValid: certificates.filter((certificate) => certificate.status === "Valid").length,
+      trainingTotal: certificates.length,
       openCAPA: capaList.filter((c) => c.status === "Open" || c.status === "Under Investigation").length,
       totalUsers: users.length,
       activeUsers: users.filter((u) => u.role !== "Suspended").length,
@@ -309,7 +334,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
       finance: users.filter((u) => u.role === "Finance").length,
       employees: users.filter((u) => u.role === "Employee").length,
     }),
-    [incidents, projects, healthRecords, vehicles, permits, capaList, users]
+    [incidents, projects, healthRecords, vehicles, permits, capaList, users, certificates, journeyInbox, journeyOverview]
   );
 
   // ========== FILTERED DATA ==========
@@ -337,6 +362,60 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   // ========== HANDLERS ==========
   const handleRefresh = async () => {
     await fetchData();
+  };
+
+  const submitPermit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setMsg("");
+    try {
+      await createPermit({ data: { ...permitDraft, type: permitDraft.type as "Hot Work" | "Confined Space" | "Working at Height" | "Excavation" | "Electrical" | "Chemical", riskLevel: permitDraft.riskLevel as "Low" | "Medium" | "High" | "Critical" } });
+      setPermitDraft({ type: "Hot Work", title: "", location: "", description: "", startDate: "", endDate: "", riskLevel: "Medium" });
+      setShowPermitForm(false);
+      setMsg("PTW request submitted for EHS review.");
+      await fetchData();
+    } catch (error) {
+      setMsg(errorMessage(error, "Could not submit PTW request"));
+    } finally { setBusy(false); }
+  };
+
+  const decidePermit = async (permit: Permit, status: "Approved" | "Rejected" | "Under Review" | "Active" | "Closed") => {
+    const reason = status === "Rejected" ? window.prompt("Give the reason for rejecting this permit:") : undefined;
+    if (status === "Rejected" && !reason?.trim()) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      if (status === "Approved" || status === "Rejected") await approvePermit({ data: { id: permit.id, status, reason } });
+      else await transitionPermit({ data: { id: permit.id, status } });
+      setMsg(`Permit ${permit.permitNumber}: ${status}.`);
+      await fetchData();
+    } catch (error) { setMsg(errorMessage(error, "Could not update permit")); }
+    finally { setBusy(false); }
+  };
+
+  const submitTraining = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await createCertificate({ data: { ...trainingDraft, certificateNumber: trainingDraft.certificateNumber || undefined, fileUrl: trainingDraft.fileUrl || undefined } });
+      setTrainingDraft({ userId: "", certificateType: "", certificateNumber: "", expiresAt: "", fileUrl: "" });
+      setMsg("Training certificate saved. Expiry status is calculated automatically.");
+      await fetchData();
+    } catch (error) { setMsg(errorMessage(error, "Could not save training record")); }
+    finally { setBusy(false); }
+  };
+
+  const decideJourney = async (item: InboxItem, status: "Approved" | "Rejected") => {
+    if (item.kind !== "journey" || !item.journey) return;
+    const reason = status === "Rejected" ? window.prompt("Why is this journey plan being rejected?") : undefined;
+    if (status === "Rejected" && !reason?.trim()) return;
+    setBusy(true);
+    try {
+      await updateJourneyStatus({ data: { id: item.journey.id, status, reason } });
+      setMsg(`${item.journey.jmpNumber} ${status.toLowerCase()}.`);
+      await fetchData();
+    } catch (error) { setMsg(errorMessage(error, "Could not update journey plan")); }
+    finally { setBusy(false); }
   };
 
   const handleExportData = () => {
@@ -450,7 +529,10 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
   const tabs = [
     { id: "overview", label: "Overview", icon: <Activity className="size-4" /> },
     { id: "fleet", label: "Fleet Management", icon: <Car className="size-4" />, badge: stats.totalVehicles },
+    { id: "journeys", label: "Journey management (JMP)", icon: <Globe className="size-4" />, badge: journeyInbox.filter((item) => item.kind === "journey" && item.needsMyAction).length },
     { id: "ptw", label: "PTW Approvals", icon: <FileWarning className="size-4" />, badge: stats.pendingPermits },
+    { id: "training", label: "Training & competence", icon: <Award className="size-4" />, badge: certificates.filter((c) => c.status !== "Valid").length },
+    ...(can(profile, "finance.request") ? [{ id: "money", label: "Money requests", icon: <Wallet className="size-4" /> }] : []),
     { id: "hse", label: "Observations & wellbeing", icon: <ShieldCheck className="size-4" /> },
     { id: "health", label: "Health declarations", icon: <Activity className="size-4" /> },
     { id: "notices", label: "Notice board", icon: <Bell className="size-4" /> },
@@ -482,13 +564,13 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           <div>
             <h2 className="text-lg font-semibold text-fg flex items-center gap-2">
               <ShieldAlert className="size-5 text-accent-bright" />
-              {role === "EHS_Officer" ? "EHS Administrator Command Center" : "Admin & EHS Command Center"}
+              {role === "EHS_Officer" ? "EHS Officer dashboard" : "EHS Operations dashboard"}
             </h2>
             <p className="text-fg-muted mt-1">
               Welcome back, <span className="font-semibold text-fg">{name}</span>.
               {role === "EHS_Officer"
-                ? " Manage day-to-day safety compliance."
-                : " You have full system authority."}
+                ? " Incidents, inspections, permits, journeys and training compliance."
+                : " Monitor company safety operations and compliance."}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -524,15 +606,12 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-fg-subtle" />
               <input
                 type="text"
-                placeholder="Search incidents, projects, users..."
+                placeholder="Search incidents, permits and staff..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-bg-subtle border border-border rounded-lg text-sm text-fg placeholder-fg-subtle focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all"
               />
             </div>
-            <button className="flex items-center gap-2 px-4 py-2 bg-accent text-accent-fg rounded-lg text-sm font-medium hover:bg-accent-bright transition-colors whitespace-nowrap">
-              <Filter className="size-4" /> Filter
-            </button>
             <button
               onClick={handleExportData}
               className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm font-medium hover:bg-bg-subtle transition-colors text-fg-muted whitespace-nowrap"
@@ -543,144 +622,53 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
         </div>
 
         {/* ======================================== */}
-        {/* QUICK STATS */}
+        {/* EHS SIDEBAR + MODULE */}
         {/* ======================================== */}
-        <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-bg-elevated rounded-xl border border-border p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Open Incidents</p>
-                <p className="text-2xl font-bold text-fg mt-1">{stats.openIncidents}</p>
-              </div>
-              <div className="size-10 rounded-lg bg-danger/10 flex items-center justify-center">
-                <AlertTriangle className="size-5 text-danger" />
-              </div>
-            </div>
-            {stats.criticalIncidents > 0 && (
-              <p className="text-xs text-danger mt-2 font-medium">{stats.criticalIncidents} critical</p>
-            )}
-          </div>
-
-          <div className="bg-bg-elevated rounded-xl border border-border p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Active Projects</p>
-                <p className="text-2xl font-bold text-fg mt-1">{stats.activeProjects}</p>
-              </div>
-              <div className="size-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Layers className="size-5 text-accent" />
-              </div>
-            </div>
-            <p className="text-xs text-fg-muted mt-2">{stats.completionRate}% completion</p>
-          </div>
-
-          <div className="bg-bg-elevated rounded-xl border border-border p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">Active Users</p>
-                <p className="text-2xl font-bold text-fg mt-1">{stats.activeUsers}</p>
-              </div>
-              <div className="size-10 rounded-lg bg-ok/10 flex items-center justify-center">
-                <Users className="size-5 text-ok" />
-              </div>
-            </div>
-            <p className="text-xs text-fg-muted mt-2">{stats.drivers} drivers · {stats.finance} finance</p>
-          </div>
-
-          <div className="bg-bg-elevated rounded-xl border border-border p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-fg-muted font-medium uppercase tracking-wider">PTW Pending</p>
-                <p className="text-2xl font-bold text-warn mt-1">{stats.pendingPermits}</p>
-              </div>
-              <div className="size-10 rounded-lg bg-warn/10 flex items-center justify-center">
-                <FileWarning className="size-5 text-warn" />
-              </div>
-            </div>
-            <p className="text-xs text-fg-muted mt-2">{permits.length} total permits</p>
-          </div>
-        </div>
-
-        {/* ======================================== */}
-        {/* TABS */}
-        {/* ======================================== */}
-        <div className="mb-6">
-          <div className="lg:hidden mb-4">
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="w-full flex items-center justify-between px-4 py-2 bg-bg-elevated border border-border rounded-lg text-fg"
-            >
-              <span className="flex items-center gap-2">
-                {tabs.find((t) => t.id === activeTab)?.icon}
-                {tabs.find((t) => t.id === activeTab)?.label}
-              </span>
-              <ChevronDown className={`size-4 transition-transform ${mobileMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-            {mobileMenuOpen && (
-              <div className="mt-2 bg-bg-elevated border border-border rounded-lg shadow-lg overflow-hidden">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id as any);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-4 py-3 text-sm transition-colors ${
-                      activeTab === tab.id ? "bg-accent/10 text-accent" : "text-fg-muted hover:bg-bg-subtle"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {tab.icon}
-                      {tab.label}
-                    </span>
-                    {tab.badge !== undefined && tab.badge > 0 && (
-                      <span className="px-2 py-0.5 text-xs font-bold bg-danger text-white rounded-full">
-                        {tab.badge}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="hidden lg:flex flex-wrap gap-1 border-b border-border">
+        <div className="grid items-start gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+          <nav aria-label="EHS modules" className="rounded-xl border border-border bg-bg-elevated p-2 lg:sticky lg:top-20">
+            <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">EHS workspace</p>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2 ${
-                  activeTab === tab.id
-                    ? "border-accent text-accent bg-accent/5"
-                    : "border-transparent text-fg-muted hover:text-fg hover:bg-bg-subtle"
-                }`}
+                type="button"
+                onClick={() => { setActiveTab(tab.id as any); setMobileMenuOpen(false); }}
+                aria-current={activeTab === tab.id ? "page" : undefined}
+                className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-medium transition sm:text-sm ${activeTab === tab.id ? "bg-accent/10 text-accent" : "text-fg-muted hover:bg-bg-subtle hover:text-fg"}`}
               >
-                {tab.icon}
-                {tab.label}
+                <span className="shrink-0">{tab.icon}</span>
+                <span className="min-w-0 flex-1">{tab.label}</span>
                 {tab.badge !== undefined && tab.badge > 0 && (
-                  <span className="ml-1 px-2 py-0.5 text-[10px] font-bold bg-danger text-white rounded-full">
+                  <span className="rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold text-white">
                     {tab.badge}
                   </span>
                 )}
               </button>
             ))}
-          </div>
-        </div>
+            </div>
+            <div className="mt-3 border-t border-border px-3 pt-3 text-xs leading-relaxed text-fg-muted">
+              <p><span className="font-semibold text-fg">JMP active:</span> {stats.activeJourneys}</p>
+              <p className="mt-1"><span className="font-semibold text-fg">Certificates:</span> {stats.trainingValid} valid / {stats.trainingTotal}</p>
+              <p className="mt-1"><span className="font-semibold text-fg">JMP submitted:</span> {journeyOverview.submitted}</p>
+            </div>
+          </nav>
+
+          <div className="min-w-0">
 
         {/* ======================================== */}
         {/* TAB: OVERVIEW */}
         {/* ======================================== */}
         {activeTab === "overview" && (
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6">
             <div className="lg:col-span-2"><HealthStatusBoard mode="today" /></div>
             <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-fg">Incident Register</h3>
                 <button
-                  onClick={() => setActiveTab("reports" as any)}
+                  onClick={() => setActiveTab("hse")}
                   className="text-sm text-accent hover:underline flex items-center gap-1"
                 >
-                  <Eye className="size-3" /> View All
+                  <Eye className="size-3" /> View all incidents
                 </button>
               </div>
               {filteredIncidents.length === 0 ? (
@@ -692,10 +680,8 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
               ) : (
                 <ul className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                   {filteredIncidents.slice(0, 10).map((incident) => (
-                    <li
-                      key={incident.id}
-                      className="group rounded-lg border border-border bg-bg p-4 hover:border-accent hover:shadow-md transition-all cursor-pointer"
-                      onClick={() => {
+                    <li key={incident.id}>
+                      <button type="button" className="group w-full rounded-lg border border-border bg-bg p-4 text-left hover:border-accent hover:shadow-md transition-all" onClick={() => {
                         setSelectedIncident(incident);
                         setShowIncidentModal(true);
                       }}
@@ -735,74 +721,14 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                           </span>
                         </div>
                       </div>
+                      </button>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
 
-            <div className="space-y-6">
-              <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
-                <h3 className="text-lg font-semibold text-fg mb-4">Quick Actions</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <button className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
-                    <Plus className="size-5 text-accent" />
-                    <span className="text-xs font-medium text-fg-muted">Report Incident</span>
-                  </button>
-                  <button className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
-                    <FileText className="size-5 text-accent" />
-                    <span className="text-xs font-medium text-fg-muted">Create PTW</span>
-                  </button>
-                  <button className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all">
-                    <Car className="size-5 text-accent" />
-                    <span className="text-xs font-medium text-fg-muted">Add Vehicle</span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab("reports")}
-                    className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-accent hover:bg-accent/5 transition-all"
-                  >
-                    <UserPlus className="size-5 text-accent" />
-                    <span className="text-xs font-medium text-fg-muted">Add User</span>
-                  </button>
-                </div>
-              </div>
 
-              <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-fg">Active Projects</h3>
-                  <button className="text-sm text-accent hover:underline flex items-center gap-1">
-                    <Eye className="size-3" /> View All
-                  </button>
-                </div>
-                {projects.filter((p) => p.status !== "Completed").slice(0, 5).length === 0 ? (
-                  <p className="text-sm text-fg-muted text-center py-4">No active projects</p>
-                ) : (
-                  <ul className="space-y-3">
-                    {projects
-                      .filter((p) => p.status !== "Completed")
-                      .slice(0, 5)
-                      .map((project) => (
-                        <li key={project.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-fg truncate">{project.name}</p>
-                            <div className="flex flex-wrap items-center gap-4 text-xs text-fg-muted">
-                              <span>Budget: ${project.budget?.toLocaleString() || "0"}</span>
-                              <span>Deadline: {safeFormatDate(project.deadline)}</span>
-                            </div>
-                          </div>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-1 rounded ${getProjectStatusBadge(
-                              project.status
-                            )}`}
-                          >
-                            {project.status}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                )}
-              </div>
-            </div>
           </div>
         )}
 
@@ -951,6 +877,14 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           </div>
         )}
 
+        {activeTab === "journeys" && <div className="space-y-5">
+          <Panel title="Journey management (JMP)">
+            <p className="mb-4 text-sm text-fg-muted">Review trip plans, follow active journeys, and open the latest shared driver location. Drivers control when they share GPS.</p>
+            {activeJourneyLocations.length ? <div className="mb-5 rounded-lg border border-border bg-bg-subtle p-4"><h3 className="mb-2 text-sm font-semibold">Live journey locations</h3><ul className="divide-y divide-border">{activeJourneyLocations.map((location) => <li key={location.id} className="flex flex-wrap items-center gap-3 py-2"><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{location.jmpNumber} · {location.driverName} · {location.vehicleLabel || "Vehicle"}</span><span className="block text-xs text-fg-muted">{location.origin} → {location.destination}{location.updatedAt ? ` · updated ${safeFormatDateTime(location.updatedAt)}` : ""}</span></span>{location.latitude !== null && location.longitude !== null ? <a className="text-sm font-medium text-accent hover:underline" href={`https://maps.google.com/?q=${location.latitude},${location.longitude}`} target="_blank" rel="noreferrer">Open map</a> : <span className="text-xs text-fg-muted">Driver has not shared a recent location</span>}</li>)}</ul></div> : <div className="mb-5 rounded-lg border border-border bg-bg-subtle p-4 text-sm text-fg-muted">No active journeys with a recent shared location.</div>}
+            {journeyInbox.filter((item) => item.kind === "journey").length ? <ul className="divide-y divide-border">{journeyInbox.filter((item) => item.kind === "journey").map((item) => <li key={`journey-${item.id}`} className="flex flex-wrap items-center gap-3 py-3"><span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{item.journey?.jmpNumber} · {item.title}</span><span className="block text-xs text-fg-muted">{item.requesterName}{item.journey?.vehicleLabel ? ` · ${item.journey.vehicleLabel}` : ""} · {safeFormatDateTime(item.createdAt)}</span>{item.journey?.purpose ? <span className="block text-xs text-fg-muted">{item.journey.purpose}</span> : null}{item.journey?.decisionNote ? <span className="block text-xs text-danger">{item.journey.decisionNote}</span> : null}</span><span className={`rounded-full px-2 py-1 text-xs ${item.status === "Started" ? "bg-ok/10 text-ok" : item.status === "Pending" ? "bg-warn/10 text-warn" : "bg-bg-subtle text-fg-muted"}`}>{item.status}</span>{item.status === "Pending" && can(profile, "fleet.manage") ? <div className="flex gap-2"><button type="button" disabled={busy} className="rounded-lg bg-ok px-3 py-2 text-xs font-semibold text-white" onClick={() => void decideJourney(item, "Approved")}>Approve</button><button type="button" disabled={busy} className="rounded-lg border border-danger/30 px-3 py-2 text-xs font-semibold text-danger" onClick={() => void decideJourney(item, "Rejected")}>Reject</button></div> : null}</li>)}</ul> : <div className="py-8 text-center text-sm text-fg-muted">No journey plans recorded yet.</div>}
+          </Panel>
+        </div>}
+
         {/* ======================================== */}
         {/* TAB: PTW */}
         {/* ======================================== */}
@@ -980,10 +914,20 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
             <div className="bg-bg-elevated rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-fg">Permit To Work (PTW)</h3>
-                <button className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-fg text-sm rounded-lg hover:bg-accent-bright transition-colors">
-                  <Plus className="size-4" /> New PTW
+                <button type="button" onClick={() => setShowPermitForm((open) => !open)} className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-fg text-sm rounded-lg hover:bg-accent-bright transition-colors">
+                  <Plus className="size-4" /> {showPermitForm ? "Cancel" : "New PTW"}
                 </button>
               </div>
+              {showPermitForm && <form onSubmit={submitPermit} className="mb-5 grid gap-3 rounded-lg border border-border bg-bg p-4 sm:grid-cols-2">
+                <label className="text-xs text-fg-muted">Work type<select required value={permitDraft.type} onChange={(e) => setPermitDraft({ ...permitDraft, type: e.target.value })} className={inputClass}><option>Hot Work</option><option>Confined Space</option><option>Working at Height</option><option>Excavation</option><option>Electrical</option><option>Chemical</option></select></label>
+                <label className="text-xs text-fg-muted">Work title<input required value={permitDraft.title} onChange={(e) => setPermitDraft({ ...permitDraft, title: e.target.value })} className={inputClass} placeholder="Describe the work" /></label>
+                <label className="text-xs text-fg-muted">Location<input required value={permitDraft.location} onChange={(e) => setPermitDraft({ ...permitDraft, location: e.target.value })} className={inputClass} placeholder="Worksite / area" /></label>
+                <label className="text-xs text-fg-muted">Risk level<select value={permitDraft.riskLevel} onChange={(e) => setPermitDraft({ ...permitDraft, riskLevel: e.target.value })} className={inputClass}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></label>
+                <label className="text-xs text-fg-muted">Planned start<input type="date" value={permitDraft.startDate} onChange={(e) => setPermitDraft({ ...permitDraft, startDate: e.target.value })} className={inputClass} /></label>
+                <label className="text-xs text-fg-muted">Planned end<input type="date" value={permitDraft.endDate} onChange={(e) => setPermitDraft({ ...permitDraft, endDate: e.target.value })} className={inputClass} /></label>
+                <label className="text-xs text-fg-muted sm:col-span-2">Work description, hazards and controls<textarea required minLength={10} value={permitDraft.description} onChange={(e) => setPermitDraft({ ...permitDraft, description: e.target.value })} className={inputClass} rows={3} placeholder="Describe work, hazards, and control measures" /></label>
+                <div className="sm:col-span-2"><button disabled={busy} className={primaryBtn}>{busy ? "Submitting…" : "Submit for EHS review"}</button></div>
+              </form>}
               {permits.length === 0 ? (
                 <div className="text-center py-8 text-fg-muted">
                   <FileWarning className="size-12 mx-auto mb-3 text-fg-subtle" />
@@ -1036,16 +980,22 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                             )}
                           </div>
                         </div>
-                        {permit.status === "Pending" && (
+                        {permit.rejectedReason && <p className="mt-2 text-xs text-danger">Review note: {permit.rejectedReason}</p>}
+                        {(permit.status === "Pending" && can(profile, "permits.approve")) && <div className="flex gap-2">
+                            <button disabled={busy} onClick={() => void decidePermit(permit, "Under Review")} className="px-3 py-2 text-sm font-medium rounded-lg border border-border hover:bg-bg-subtle">Submit for review</button>
+                          </div>}
+                        {permit.status === "Under Review" && can(profile, "permits.approve") && (
                           <div className="flex gap-2">
-                            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors border border-danger/30 flex items-center gap-1">
+                            <button disabled={busy} onClick={() => void decidePermit(permit, "Rejected")} className="px-4 py-2 text-sm font-medium rounded-lg bg-danger/10 text-danger hover:bg-danger/20 transition-colors border border-danger/30 flex items-center gap-1">
                               <XCircle className="size-4" /> Reject
                             </button>
-                            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ok text-white hover:bg-ok/90 transition-colors flex items-center gap-1 shadow-sm">
+                            <button disabled={busy} onClick={() => void decidePermit(permit, "Approved")} className="px-4 py-2 text-sm font-medium rounded-lg bg-ok text-white hover:bg-ok/90 transition-colors flex items-center gap-1 shadow-sm">
                               <CheckCircle className="size-4" /> Approve
                             </button>
                           </div>
                         )}
+                        {permit.status === "Approved" && can(profile, "ehs.manage") && <button disabled={busy} onClick={() => void decidePermit(permit, "Active")} className="rounded-lg bg-accent px-3 py-2 text-sm text-accent-fg">Activate work</button>}
+                        {permit.status === "Active" && can(profile, "ehs.manage") && <button disabled={busy} onClick={() => void decidePermit(permit, "Closed")} className="rounded-lg bg-ok px-3 py-2 text-sm text-white">Close permit</button>}
                       </div>
                     </div>
                   ))}
@@ -1054,6 +1004,23 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
             </div>
           </div>
         )}
+
+        {activeTab === "training" && <div className="space-y-5">
+          <Panel title="Training & competence matrix">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-fg-muted">Track staff certificates and see expiry risk before a task is assigned.</p><button type="button" className={primaryBtn} onClick={() => { const rows = [["Staff", "Course", "Certificate number", "Expiry", "Status"], ...certificates.map((c) => [users.find((u) => u.userId === c.userId)?.fullName || c.userId, c.certificateType, c.certificateNumber || "", c.expiresAt, c.status])]; const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\r\n"); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "ehs-training-matrix.csv"; link.click(); URL.revokeObjectURL(url); }}>Download matrix</button></div>
+            {can(profile, "ehs.manage") && <form onSubmit={submitTraining} className="mb-5 grid gap-3 rounded-lg border border-border bg-bg p-4 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="text-xs text-fg-muted">Staff member<select required value={trainingDraft.userId} onChange={(e) => setTrainingDraft({ ...trainingDraft, userId: e.target.value })} className={inputClass}><option value="">Select staff</option>{users.filter((u) => u.status === "active").map((u) => <option key={u.userId} value={u.userId}>{u.fullName} · {ROLE_LABELS[u.baseRole as EhsRole] || u.baseRole}</option>)}</select></label>
+              <label className="text-xs text-fg-muted">Course / certificate<input required value={trainingDraft.certificateType} onChange={(e) => setTrainingDraft({ ...trainingDraft, certificateType: e.target.value })} className={inputClass} placeholder="First aid, fire safety…" /></label>
+              <label className="text-xs text-fg-muted">Expiry date<input required type="date" value={trainingDraft.expiresAt} onChange={(e) => setTrainingDraft({ ...trainingDraft, expiresAt: e.target.value })} className={inputClass} /></label>
+              <label className="text-xs text-fg-muted">Certificate number<input value={trainingDraft.certificateNumber} onChange={(e) => setTrainingDraft({ ...trainingDraft, certificateNumber: e.target.value })} className={inputClass} /></label>
+              <label className="text-xs text-fg-muted">Certificate link (optional)<input type="url" value={trainingDraft.fileUrl} onChange={(e) => setTrainingDraft({ ...trainingDraft, fileUrl: e.target.value })} className={inputClass} placeholder="https://…" /></label>
+              <div className="flex items-end"><button disabled={busy || users.filter((u) => u.status === "active").length === 0} className={primaryBtn}>{busy ? "Saving…" : "Save certificate"}</button></div>
+            </form>}
+            <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[680px] text-left"><thead className="bg-bg-subtle text-xs text-fg-muted"><tr>{["Staff member", "Course", "Certificate", "Expiry", "Status", "Evidence"].map((item) => <th key={item} className="px-3 py-2 font-medium">{item}</th>)}</tr></thead><tbody className="divide-y divide-border">{certificates.map((c) => <tr key={c.id}><td className="px-3 py-3 text-sm">{users.find((u) => u.userId === c.userId)?.fullName || c.userId}</td><td className="px-3 py-3 text-sm">{c.certificateType}</td><td className="px-3 py-3 text-sm">{c.certificateNumber || "—"}</td><td className="px-3 py-3 text-sm">{safeFormatDate(c.expiresAt)}</td><td className="px-3 py-3"><span className={`rounded-full px-2 py-1 text-xs ${c.status === "Valid" ? "bg-ok/10 text-ok" : "bg-danger/10 text-danger"}`}>{c.status}</span></td><td className="px-3 py-3 text-sm">{c.fileUrl ? <a className="text-accent underline" href={c.fileUrl} target="_blank" rel="noreferrer">Open</a> : "—"}</td></tr>)}{certificates.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-fg-muted">No training certificates recorded yet.</td></tr>}</tbody></table></div>
+          </Panel>
+        </div>}
+
+        {activeTab === "money" && can(profile, "finance.request") && <FinanceRequestWorkspace profile={profile} embedded />}
 
         {/* ======================================== */}
         {/* TAB: USER MANAGEMENT */}
@@ -1211,6 +1178,7 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
 
         {activeTab === "reports" && (
           <div className="space-y-6">
+            <SiteReportsPanel />
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-bg-elevated rounded-xl border border-border p-4 text-center shadow-sm">
                 <p className="text-2xl font-bold text-fg">{capaList.length}</p>
@@ -1517,6 +1485,9 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
           </div>
         )}
 
+          </div>
+        </div>
+
         {/* ======================================== */}
         {/* INCIDENT DETAIL MODAL */}
         {/* ======================================== */}
@@ -1579,8 +1550,8 @@ function AdminDash({ name, role, profile }: { name: string; role: EhsRole; profi
                   </p>
                 </div>
                 <div className="flex gap-2 pt-4 border-t border-border">
-                  <button className="flex-1 px-4 py-2 bg-accent text-accent-fg rounded-lg text-sm font-medium hover:bg-accent-bright transition-colors">
-                    View Full Details
+                  <button type="button" onClick={() => { setShowIncidentModal(false); setActiveTab("hse"); }} className="flex-1 px-4 py-2 bg-accent text-accent-fg rounded-lg text-sm font-medium hover:bg-accent-bright transition-colors">
+                    Open incident workspace
                   </button>
                   <button
                     onClick={() => setShowIncidentModal(false)}

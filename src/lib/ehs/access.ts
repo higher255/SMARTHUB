@@ -55,7 +55,7 @@ const STAFF: Permission[] = ["finance.request", "ehs.report"];
 export const ROLE_PERMISSIONS: Record<EhsRole, Permission[]> = {
   Admin: ALL_PERMISSIONS.filter((permission) => !ADMIN_EXCLUDED_PERMISSIONS.includes(permission)),
   EHS_Officer: [
-    ...STAFF, "data.view_org", "ehs.manage", "ehs.view_org", "wellbeing.manage", "permits.approve", "fleet.manage", "projects.manage",
+    ...STAFF, "data.view_org", "ehs.manage", "ehs.view_org", "wellbeing.manage", "permits.approve", "fleet.manage",
     "announce.post", "hours.record", "ncr.raise", "ncr.manage", "hira.manage", "subcontractors.manage", "people.view",
     "attendance.view",
   ],
@@ -146,12 +146,18 @@ export const WORKSPACES: Workspace[] = [
 export function workspacesFor(subject: AccessSubject): Workspace[] {
   if (subject.status && subject.status !== "active") return [];
   if (subject.isPlatformAdmin) return WORKSPACES.filter((w) => w.platformOnly);
-  return WORKSPACES.filter((w) => {
+  const available = WORKSPACES.filter((w) => {
     if (w.platformOnly) return false;
     if (w.path === "/dashboard") return subject.role !== "Client";
     if (w.roles?.includes(subject.role as EhsRole)) return true;
     return w.anyOf ? w.anyOf.some((p) => can(subject, p)) : false;
   });
+  // The EHS Officer uses the EHS operations workspace. Their requests remain
+  // available under /requests, while project delivery and finance books stay
+  // with their owning teams even if legacy extra permissions were assigned.
+  return subject.role === "EHS_Officer"
+    ? available.filter((workspace) => !["/projectmanager", "/finance", "/requests"].includes(workspace.path))
+    : available;
 }
 
 /** Where a person lands after sign-in: the landlord gets the platform console, everyone else their workspace. */

@@ -359,9 +359,23 @@ export const listCertificates = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const profile = await loadProfile(context.userId);
+    const profile = await requirePermission(context.userId, "ehs.view_org", "You cannot view the training matrix");
     const rows = await sql<{ id: number; user_id: string; certificate_type: string; certificate_number: string | null; file_url: string | null; expires_at: string; status: string; client_account_id: string | null }>`select id, user_id, certificate_type, certificate_number, file_url, expires_at, status, client_account_id from certificates where organization_id = ${profile?.organizationId} order by expires_at asc`;
     return rows.map((row): Certificate => ({ id: row.id, userId: row.user_id, certificateType: row.certificate_type, certificateNumber: row.certificate_number, fileUrl: row.file_url, expiresAt: row.expires_at, status: row.status, clientAccountId: row.client_account_id }));
+  });
+
+export const createCertificate = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ userId: z.string().min(1), certificateType: z.string().trim().min(2).max(100), certificateNumber: z.string().trim().max(100).optional(), expiresAt: z.string().date(), fileUrl: z.string().url().optional() }).parse(input))
+  .middleware([authMiddleware, workdayMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const profile = await requirePermission(context.userId, "ehs.manage", "Only EHS can manage training records");
+    const person = await sql<{ user_id: string }>`select user_id from profiles where user_id = ${data.userId} and organization_id = ${profile.organizationId} and status = 'active' limit 1`;
+    if (!person[0]) throw new Error("Choose an active staff member in your organization");
+    await sql`insert into certificates (user_id, organization_id, certificate_type, certificate_number, file_url, expires_at)
+      values (${data.userId}, ${profile.organizationId}, ${data.certificateType}, ${data.certificateNumber || null}, ${data.fileUrl || null}, ${data.expiresAt})`;
+    await audit(sql, profile.organizationId, context.userId, "training.certificate_created", "certificates", null, { userId: data.userId, certificateType: data.certificateType, expiresAt: data.expiresAt });
+    return { success: true };
   });
 
 export const listAnnouncements = createServerFn({ method: "GET" })
@@ -1491,6 +1505,12 @@ export const approvePermit = createServerFn({ method: "POST" })
     
     const { clause } = getOrgWhereClause(profile, context.userId);
     
+    const current = await sql<{ status: string }>`select status from permits where id = ${data.id} and ${clause} limit 1`;
+    if (!current[0]) throw new Error("Permit not found");
+    if (current[0].status !== "Under Review" && current[0].status !== "Pending") {
+      throw new Error(`This permit is ${current[0].status} and cannot be reviewed`);
+    }
+    if (data.status === "Rejected" && !data.reason?.trim()) throw new Error("A rejection reason is required");
     await sql`
       UPDATE permits 
       SET status = ${data.status}, 
@@ -1502,6 +1522,27 @@ export const approvePermit = createServerFn({ method: "POST" })
     `;
     
     return { success: true, message: `Permit ${data.status}` };
+  });
+
+export const transitionPermit = createServerFn({ method: "POST" })
+  .validator((input: unknown) => z.object({ id: z.string(), status: z.enum(["Under Review", "Active", "Closed"]) }).parse(input))
+  .middleware([authMiddleware, workdayMiddleware])
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const permission = data.status === "Under Review" ? "permits.approve" : "ehs.manage";
+    const profile = await requirePermission(context.userId, permission, "You do not have permission to change this permit stage");
+    const { clause } = getOrgWhereClause(profile, context.userId);
+    const current = await sql<{ status: string }>`select status from permits where id = ${data.id} and ${clause} limit 1`;
+    if (!current[0]) throw new Error("Permit not found");
+    const allowed: Record<string, string[]> = {
+      Pending: ["Under Review"],
+      Approved: ["Active"],
+      Active: ["Closed"],
+    };
+    if (!allowed[current[0].status]?.includes(data.status)) throw new Error(`Cannot move a ${current[0].status} permit to ${data.status}`);
+    await sql`update permits set status = ${data.status}, updated_at = now() where id = ${data.id} and ${clause}`;
+    await audit(sql, profile.organizationId, context.userId, `permit.${data.status.toLowerCase().replaceAll(" ", "_")}`, "permits", data.id, { from: current[0].status, to: data.status });
+    return { success: true, status: data.status };
   });
 
 export const deletePermit = createServerFn({ method: "POST" })

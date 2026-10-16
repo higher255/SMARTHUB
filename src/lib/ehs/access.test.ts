@@ -17,6 +17,21 @@ test("site staff can request money but cannot approve or see the books", () => {
   }
 });
 
+test("team leaders land in their site workspace and only receive team operations permissions", () => {
+  const leader = { role: "Team_Leader" };
+  assert.equal(homePath(leader), "/teamleader");
+  assert.ok(canAccessPath(leader, "/teamleader"));
+  assert.ok(can(leader, "attendance.view"));
+  assert.ok(can(leader, "teamleader.dashboard"));
+  assert.ok(can(leader, "hours.record"));
+  assert.ok(can(leader, "ehs.report"));
+  assert.ok(!can(leader, "ehs.manage"));
+  assert.ok(!can(leader, "wellbeing.manage"));
+  const dualRoleDriver = { role: "Driver", permissions: ["teamleader.dashboard", "attendance.view"] };
+  assert.ok(canAccessPath(dualRoleDriver, "/teamleader"));
+  assert.ok(canAccessPath(dualRoleDriver, "/driver"));
+});
+
 test("a Project Manager granted finance.approve gets the Finance workspace without a second role", () => {
   const pm = { role: "Project_Manager" };
   assert.ok(!canAccessPath(pm, "/finance"));

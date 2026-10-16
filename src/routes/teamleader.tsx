@@ -32,7 +32,7 @@ function TeamWorkspace({ profile }: { profile: import("@/lib/ehs/server").Profil
   useLive(load, 30000);
   const onSite = attendance.filter((x) => !x.checkOut).length;
   return <main className="mx-auto max-w-7xl space-y-6 px-4 py-7 sm:px-6">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-semibold">Team & site</h1><p className="mt-1 text-sm text-fg-muted">Projects assigned to you, today’s attendance, site updates and safety actions.</p></div><button type="button" className={btnPrimary} disabled={!projects.length} onClick={() => setReportOpen(true)}>Submit daily site report</button></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-semibold">Team & site</h1><p className="mt-1 text-sm text-fg-muted">Team leaders file one site report at the end of each working day.</p></div><button type="button" className={btnPrimary} disabled={!projects.length} onClick={() => setReportOpen(true)}>Submit daily site report</button></div>
     <Notice msg={message} onClose={() => setMessage("")} />
     <div className="grid gap-3 sm:grid-cols-3"><Kpi label="Assigned projects" value={projects.length} /><Kpi label="Checked in today" value={onSite} hint="For your assigned projects" /><Kpi label="Recent site reports" value={reports.length} /></div>
     <div className="grid gap-5 lg:grid-cols-2">
@@ -42,7 +42,7 @@ function TeamWorkspace({ profile }: { profile: import("@/lib/ehs/server").Profil
       </Panel>
       <Panel title="Site progress">
         <p className="mb-3 text-xs text-fg-muted">Daily reports and issues submitted by your assigned site team.</p>
-        {reports.length === 0 ? <EmptyState title="No site reports yet" hint="Submit the daily site report from My work. Reports for your assigned projects will appear here." /> : <ul className="divide-y divide-border">{reports.slice(0, 10).map((r) => <li key={r.id} className="py-3"><div className="flex justify-between gap-3"><p className="text-sm font-medium">{r.projectName ?? "Project"}</p><span className="text-xs text-fg-muted">{formatDate(r.reportDate)}</span></div><p className="mt-1 text-sm text-fg-muted">{r.summary}</p>{r.issues ? <p className="mt-1 text-sm text-warn">Issue: {r.issues}</p> : null}<p className="mt-1 text-xs text-fg-muted">{r.workers} workers · {r.hoursPerWorker} hours each · {r.author ?? "Team member"}</p></li>)}</ul>}
+        {reports.length === 0 ? <EmptyState title="No site reports yet" hint="Submit the team’s end-of-day report here. Reports from your assigned projects will appear in this list." /> : <ul className="divide-y divide-border">{reports.slice(0, 10).map((r) => <li key={r.id} className="py-3"><div className="flex justify-between gap-3"><p className="text-sm font-medium">{r.projectName ?? "Project"}</p><span className="text-xs text-fg-muted">{formatDate(r.reportDate)}</span></div><p className="mt-1 text-sm text-fg-muted">{r.summary}</p>{r.issues ? <p className="mt-1 text-sm text-warn">Issue: {r.issues}</p> : null}<p className="mt-1 text-xs text-fg-muted">{r.workers} workers · {r.hoursPerWorker} hours each · {r.author ?? "Team member"}</p></li>)}</ul>}
       </Panel>
     </div>
     <section><h2 className="mb-3 flex items-center gap-2 text-lg font-semibold"><ClipboardList className="size-5" /> Safety actions & wellbeing</h2><SafetyHubWorkspace profile={profile} compact /></section>

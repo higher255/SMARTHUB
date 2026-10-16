@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, CheckCheck, Download, Search, Wallet, X } from "lucide-react";
+import { Check, CheckCheck, Download, Search, Wallet, X } from "lucide-react";
 import { RoleGate } from "@/components/role-gate";
 import { AnnouncementComposer } from "@/components/announcement-composer";
 import { AccountingWorkspace } from "@/components/finance/accounting";
@@ -22,7 +22,8 @@ import { emailDeliveryNote } from "@/lib/ui/email-status";
 export const Route = createFileRoute("/finance")({
   validateSearch: (search: Record<string, unknown>) => {
     const id = Number(search.request);
-    return Number.isInteger(id) && id > 0 ? { request: id } : {};
+    const section = ["overview", "requests", "budgets", "accounting"].includes(String(search.section)) ? String(search.section) as Tab : undefined;
+    return { ...(Number.isInteger(id) && id > 0 ? { request: id } : {}), ...(section ? { section } : {}) };
   },
   component: FinancePage,
 });
@@ -36,7 +37,7 @@ type Stats = Awaited<ReturnType<typeof getFinanceDashboardStats>>;
 type Budget = Awaited<ReturnType<typeof getProjectBudgetSummary>>[number];
 
 function FinanceDash({ profile }: { profile: Profile }) {
-  const { request: requestId } = Route.useSearch();
+  const { request: requestId, section } = Route.useSearch();
   const brand = useOrgBrand();
   const currency = brand?.currency ?? "TZS";
   const canView = can(profile, "finance.view");
@@ -52,6 +53,13 @@ function FinanceDash({ profile }: { profile: Profile }) {
   const [selected, setSelected] = useState<FinanceRequest | null>(null);
   const [budgetFor, setBudgetFor] = useState<number | null>(null);
   const openedLinkedRequest = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!section) return;
+    if ((section === "overview" || section === "budgets") && canView) setTab(section);
+    if (section === "requests" && (canView || canHandleRequests)) setTab(section);
+    if (section === "accounting" && canBooks) setTab(section);
+  }, [section, canView, canHandleRequests, canBooks]);
 
   const load = useCallback(async () => {
     if (!canView && !canHandleRequests) return;
@@ -88,7 +96,6 @@ function FinanceDash({ profile }: { profile: Profile }) {
 
   const tabs = [
     ...(canView ? [{ id: "overview" as const, label: "Overview" }, { id: "requests" as const, label: "Requests", badge: mine.length || undefined }, { id: "budgets" as const, label: "Project budgets" }] : canHandleRequests ? [{ id: "requests" as const, label: "Requests", badge: mine.length || undefined }] : []),
-    ...(canBooks ? [{ id: "accounting" as const, label: "Accounting", icon: <BookOpen className="size-4" /> }] : []),
   ];
 
   return (

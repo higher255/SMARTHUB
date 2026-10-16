@@ -20,7 +20,8 @@ test("migrations apply cleanly and twice", async () => {
   const pg = await freshDb();
   const fs = await import("node:fs");
   const path = await import("node:path");
-  const dir = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "migrations");
+  const { fileURLToPath } = await import("node:url");
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "migrations");
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".sql") && f >= "0007").sort()) await pg.exec(fs.readFileSync(path.join(dir, f), "utf8"));
 });
 
@@ -85,6 +86,35 @@ test("void reverses the ledger and cannot be repeated", async () => {
   assert.equal(tb.reduce((s, r) => s + Number(r.balance_dr) - Number(r.balance_cr), 0), 0);
   assert.equal(tb.filter((r) => Number(r.balance_dr) !== 0 || Number(r.balance_cr) !== 0).length, 0, "everything nets to zero after void");
   await assert.rejects(q(pg, "select fin_invoice_void($1,$2,'u1','again')", [id, ORG]), /already void/);
+});
+
+test("supplier bill VAT and partial payment reconcile; completed bank periods are immutable", async () => {
+  const pg = await freshDb();
+  await q(pg, "select acct_seed_chart($1)", [ORG]);
+  const [{ id: bill }] = await q(pg, `insert into finance_bills
+    (organization_id,supplier_name,bill_number,description,currency,status,issue_date,subtotal,vat_rate,vat_amount,total,created_by)
+    values ($1,'Tanzania Supplies','BILL-1','Safety helmets','TZS','Draft','2026-07-02',100,18,18,118,'u1') returning id`, [ORG]);
+  await q(pg, "insert into finance_bill_lines(bill_id,description,quantity,unit_price,account_code) values ($1,'Safety helmets',1,100,'5400')", [bill]);
+  await q(pg, "select fin_bill_post($1,$2,'u1')", [bill, ORG]);
+  await q(pg, "select fin_bill_pay($1,$2,'u1',59,'2026-07-03'::date,'Bank','TX-1')", [bill, ORG]);
+  const [saved] = await q(pg,"select status,subtotal,vat_amount,total,amount_paid from finance_bills where id=$1",[bill]);
+  assert.equal(saved.status,"Partially Paid");
+  assert.equal(Number(saved.subtotal),100);
+  assert.equal(Number(saved.vat_amount),18);
+  assert.equal(Number(saved.total),118);
+  assert.equal(Number(saved.amount_paid),59);
+  const [inputVat] = await q(pg,"select balance_dr,balance_cr from acct_trial_balance($1,'2026-12-31') where code='2150'",[ORG]);
+  assert.equal(Number(inputVat.balance_dr)-Number(inputVat.balance_cr),18);
+
+  await post(pg,[{account:"1010",debit:10000,credit:0},{account:"3000",debit:0,credit:10000}],ORG,"2026-07-01");
+  const [{ line_id: lineId }] = await q(pg,`select l.id line_id from journal_lines l
+    join journal_entries e on e.id=l.entry_id join chart_of_accounts a on a.id=l.account_id
+    where e.organization_id=$1 and e.entry_date='2026-07-03' and a.code='1010'`,[ORG]);
+  const [{ id: reconciliation }] = await q(pg,`select acct_save_reconciliation(null,$1,'u1','1010','2026-07-03','2026-07-03',10000,9941,$2::jsonb) id`,[ORG,JSON.stringify([lineId])]);
+  await q(pg,"select acct_complete_reconciliation($1,$2)",[reconciliation,ORG]);
+  await assert.rejects(q(pg,"delete from journal_lines where id=$1",[lineId]),/period is reconciled/);
+  await assert.rejects(q(pg,"update journal_lines set description='changed' where id=$1",[lineId]),/period is reconciled/);
+  await assert.rejects(post(pg,[{account:"1010",debit:25,credit:0},{account:"4000",debit:0,credit:25}],ORG,"2026-07-03"),/period is reconciled/);
 });
 
 test("paying a finance request posts expense vs cash once, only from Approved", async () => {

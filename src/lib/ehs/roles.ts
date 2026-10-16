@@ -16,7 +16,7 @@ export type EhsRole = (typeof EHS_ROLES)[number];
 
 export const ROLE_LABELS: Record<EhsRole, string> = {
   Admin: "Administrator",
-  EHS_Officer: "EHS Administrator",
+  EHS_Officer: "EHS Officer",
   Manager: "Manager",
   Project_Manager: "Project Manager",
   Finance: "Finance Officer",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { workdayMiddleware } from "@/lib/auth/workday-middleware";
 import { getSql } from "@/lib/db.server";
+import { sendEmail } from "./email";
 import { can } from "./access";
 import {
   audit,
@@ -48,6 +49,14 @@ export type FinanceRequest = {
   paymentMethod: string | null;
   notes: string | null;
   attachments: string[] | null;
+  recipientMode: "finance" | "management" | "specific";
+  recipientUserId: string | null;
+  recipientName: string | null;
+  recipientEmail: string | null;
+  recipientBankName: string | null;
+  recipientBankAccountName: string | null;
+  recipientBankAccountNumber: string | null;
+  recipientBankSwift: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -76,7 +85,7 @@ export type InvoiceLine = { id: number; position: number; description: string; q
 export type PaymentRow = { id: number; kind: string; receiptNo: string | null; amount: number; payDate: string; method: string; reference: string | null; partyName: string | null };
 export type InvoiceDetail = FinanceInvoice & { lines: InvoiceLine[]; payments: PaymentRow[]; customerTin: string | null; customerAddress: string | null };
 export type PurchaseOrder = { id: number; poNumber: string; supplierName: string; description: string; amount: number; currency: string; status: string; issueDate: string; projectId: number | null };
-export type FinanceBill = { id: number; billNumber: string; supplierInvoiceNumber: string | null; supplierName: string; supplierId: number | null; description: string; currency: string; status: string; issueDate: string; dueDate: string | null; projectId: number | null; subtotal: number; vatRate: number; vatAmount: number; total: number; amountPaid: number; notes: string | null };
+export type FinanceBill = { id: number; billNumber: string; supplierInvoiceNumber: string | null; supplierName: string; supplierId: number | null; description: string; currency: string; status: string; issueDate: string; dueDate: string | null; projectId: number | null; subtotal: number; vatRate: number; vatAmount: number; total: number; amountPaid: number; notes: string | null; payeeEmail: string | null; payeeBankName: string | null; payeeBankAccountName: string | null; payeeBankAccountNumber: string | null; payeeBankSwift: string | null };
 export type BillLine = { id: number; position: number; description: string; quantity: number; unitPrice: number; accountCode: string; projectId: number | null };
 export type BankReconciliationLine = { id: number; date: string; entryNo: string; memo: string; description: string | null; debit: number; credit: number; amount: number; selected: boolean };
 export type Party = { id: number; kind: "customer" | "supplier"; name: string; tin: string | null; vrn: string | null; email: string | null; phone: string | null; address: string | null };
@@ -106,6 +115,8 @@ type RequestRow = {
   approved_by: string | null; approved_at: string | null; rejected_by: string | null; rejected_reason: string | null;
   paid_by: string | null; paid_at: string | null; payment_reference: string | null; payment_method: string | null;
   notes: string | null; attachments: string[] | null; created_at: string; updated_at: string;
+  recipient_mode: string | null; recipient_user_id: string | null; recipient_name: string | null; recipient_email: string | null;
+  recipient_bank_name: string | null; recipient_bank_account_name: string | null; recipient_bank_account_number: string | null; recipient_bank_swift: string | null;
 };
 
 const mapRequest = (r: RequestRow): FinanceRequest => ({
@@ -116,6 +127,10 @@ const mapRequest = (r: RequestRow): FinanceRequest => ({
   approvedBy: r.approved_by, approvedAt: r.approved_at, rejectedBy: r.rejected_by, rejectedReason: r.rejected_reason,
   paidBy: r.paid_by, paidAt: r.paid_at, paymentReference: r.payment_reference, paymentMethod: r.payment_method,
   notes: r.notes, attachments: r.attachments, createdAt: r.created_at, updatedAt: r.updated_at,
+  recipientMode: (r.recipient_mode ?? "finance") as FinanceRequest["recipientMode"], recipientUserId: r.recipient_user_id,
+  recipientName: r.recipient_name, recipientEmail: r.recipient_email, recipientBankName: r.recipient_bank_name,
+  recipientBankAccountName: r.recipient_bank_account_name, recipientBankAccountNumber: r.recipient_bank_account_number,
+  recipientBankSwift: r.recipient_bank_swift,
 });
 
 const money = (n: number, currency: string) => `${currency} ${Math.round(n).toLocaleString("en-US")}`;
@@ -132,19 +147,45 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
       priority: z.enum(["Low", "Medium", "High", "Critical"]).default("Medium"),
       notes: z.string().max(1000).optional(),
       attachments: z.array(z.string().max(500)).max(10).optional(),
+      recipientMode: z.enum(["finance", "management", "specific"]).default("finance"),
+      recipientUserId: z.string().min(1).optional(),
+      recipientName: z.string().trim().min(2).max(120).optional(),
+      recipientEmail: z.string().email().max(254).optional(),
+      recipientBankName: z.string().trim().max(120).optional(),
+      recipientBankAccountName: z.string().trim().max(120).optional(),
+      recipientBankAccountNumber: z.string().trim().max(80).optional(),
+      recipientBankSwift: z.string().trim().max(30).optional(),
     }).parse(input),
   )
   .middleware([authMiddleware, workdayMiddleware])
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requirePermission(context.userId, "finance.request", "You cannot submit finance requests");
-    if (profile.role === "Finance" || profile.department.trim().toLowerCase() === "finance") {
+    if (profile.role === "Finance" || profile.department?.trim().toLowerCase() === "finance") {
       throw new Error("Finance users receive and process requests in the Finance workspace");
     }
     const project = data.projectId == null ? [] : await sql<{ id: number; name: string; user_id: string }>`
       select id, name, user_id from projects where id = ${data.projectId} and organization_id = ${profile.organizationId}`;
     if (data.projectId != null && !project[0]) throw new Error("Choose a project from your company");
     const projectName = project[0]?.name ?? "Company / office";
+    let recipientUserId: string | null = null;
+    let recipientName: string | null = null;
+    let recipientEmail: string | null = null;
+    if (data.recipientMode === "management") {
+      if (!data.recipientUserId) throw new Error("Choose a management recipient");
+      const manager = await sql<{ user_id: string; full_name: string; email: string | null }>`
+        select p.user_id, p.full_name, u.email from profiles p left join "user" u on u.id = p.user_id
+        where p.user_id = ${data.recipientUserId} and p.organization_id = ${profile.organizationId}
+          and p.status = 'active' and p.role in ('Admin','Manager') limit 1`;
+      if (!manager[0]) throw new Error("Choose an active Administrator or Manager in your company");
+      recipientUserId = manager[0].user_id;
+      recipientName = manager[0].full_name;
+      recipientEmail = manager[0].email;
+    } else if (data.recipientMode === "specific") {
+      if (!data.recipientName || !data.recipientEmail) throw new Error("Enter the recipient's name and email");
+      recipientName = data.recipientName;
+      recipientEmail = data.recipientEmail;
+    }
     const org = await sql<{ currency: string }>`
       select currency from organizations where id = ${profile.organizationId}`;
     const currency = data.currency ?? org[0]?.currency ?? "TZS";
@@ -167,10 +208,14 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
 
     const rows = await sql<{ id: number; request_number: string }>`
       insert into finance_requests (project_id, user_id, organization_id, request_number, title, description, category, amount, currency,
-                                    priority, status, requested_by, notes, attachments, requires_manager, over_budget)
+                                    priority, status, requested_by, notes, attachments, requires_manager, over_budget, recipient_mode,
+                                    recipient_user_id, recipient_name, recipient_email, recipient_bank_name, recipient_bank_account_name,
+                                    recipient_bank_account_number, recipient_bank_swift)
       values (${data.projectId ?? null}, ${context.userId}, ${profile.organizationId}, acct_next_no(${profile.organizationId}, 'FR', 'FR'),
               ${data.title}, ${data.description ?? null}, ${data.category}, ${data.amount}, ${currency}, ${data.priority}, 'Submitted',
-              ${name}, ${data.notes ?? null}, ${data.attachments ?? null}, ${requiresManager}, ${overBudget})
+              ${name}, ${data.notes ?? null}, ${data.attachments ?? null}, ${requiresManager}, ${overBudget}, ${data.recipientMode},
+              ${recipientUserId}, ${recipientName}, ${recipientEmail}, ${data.recipientBankName ?? null}, ${data.recipientBankAccountName ?? null},
+              ${data.recipientBankAccountNumber ?? null}, ${data.recipientBankSwift ?? null})
       returning id, request_number`;
     const created = rows[0]!;
 
@@ -185,11 +230,29 @@ export const createFinanceRequest = createServerFn({ method: "POST" })
     await notifyInApp(sql, {
       organizationId: profile.organizationId, userIds: [context.userId],
       title: `${created.request_number} submitted`,
-      message: "Your request was sent directly to Finance for approval.",
+      message: data.recipientMode === "finance"
+        ? "Your request was sent directly to Finance for approval."
+        : `Your request was sent to ${recipientName ?? "the selected recipient"}; Finance will keep the approval and payment record synchronized.`,
       type: "finance_request", link: "/requests", entityType: "finance_request", entityId: created.id,
     });
+    if (recipientUserId && recipientUserId !== context.userId) {
+      await notifyInApp(sql, { organizationId: profile.organizationId, userIds: [recipientUserId],
+        title: `${created.request_number} · EHS money request`,
+        message: `${name} sent a request for ${money(data.amount, currency)}: ${data.title}. Finance approval and payment status are tracked in SmartHub.`,
+        type: "finance_request", link: "/finance", entityType: "finance_request", entityId: created.id });
+    }
+    let recipientEmailStatus: "sent" | "failed" | "not-applicable" = "not-applicable";
+    if (data.recipientMode === "specific" && recipientEmail) {
+      const esc = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char]!);
+      try {
+        await sendEmail({ to: recipientEmail, subject: `${created.request_number} · EHS money request`,
+          text: `${name} sent a request for ${money(data.amount, currency)}: ${data.title}. Finance approval and payment status are tracked in SmartHub.`,
+          html: `<p>${esc(name)} sent a money request for <strong>${esc(money(data.amount, currency))}</strong>.</p><p><strong>${esc(data.title)}</strong></p><p>${esc(data.description ?? "")}</p><p>Reference: ${esc(created.request_number)}. Finance approval and payment status are tracked in SmartHub.</p>` });
+        recipientEmailStatus = "sent";
+      } catch { recipientEmailStatus = "failed"; }
+    }
     await audit(sql, profile.organizationId, context.userId, "create", "finance_request", created.id, { amount: data.amount });
-    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager: false, overBudget, emailStatus: financeNotice.emailStatus };
+    return { success: true, requestId: created.id, requestNumber: created.request_number, requiresManager: false, overBudget, emailStatus: financeNotice.emailStatus, recipientEmailStatus };
   });
 
 export const listFinanceRequests = createServerFn({ method: "GET" })
@@ -597,13 +660,16 @@ type BillRow = {
   id: number; bill_number: string; supplier_invoice_number: string | null; supplier_name: string; supplier_id: number | null;
   description: string; currency: string; status: string; issue_date: string; due_date: string | null; project_id: number | null;
   subtotal: string | number; vat_rate: string | number; vat_amount: string | number; total: string | number;
-  amount_paid: string | number; notes: string | null;
+  amount_paid: string | number; notes: string | null; payee_email: string | null; payee_bank_name: string | null;
+  payee_bank_account_name: string | null; payee_bank_account_number: string | null; payee_bank_swift: string | null;
 };
-const BILL_COLS = `id,bill_number,supplier_invoice_number,supplier_name,supplier_id,description,currency,status,issue_date::text as issue_date,due_date::text as due_date,project_id,subtotal,vat_rate,vat_amount,total,amount_paid,notes`;
+const BILL_COLS = `id,bill_number,supplier_invoice_number,supplier_name,supplier_id,description,currency,status,issue_date::text as issue_date,due_date::text as due_date,project_id,subtotal,vat_rate,vat_amount,total,amount_paid,notes,payee_email,payee_bank_name,payee_bank_account_name,payee_bank_account_number,payee_bank_swift`;
 const mapBill = (r: BillRow): FinanceBill => ({
   id:r.id,billNumber:r.bill_number,supplierInvoiceNumber:r.supplier_invoice_number,supplierName:r.supplier_name,supplierId:r.supplier_id,
   description:r.description,currency:r.currency,status:r.status,issueDate:r.issue_date,dueDate:r.due_date,projectId:r.project_id,
   subtotal:num(r.subtotal),vatRate:num(r.vat_rate),vatAmount:num(r.vat_amount),total:num(r.total),amountPaid:num(r.amount_paid),notes:r.notes,
+  payeeEmail:r.payee_email,payeeBankName:r.payee_bank_name,payeeBankAccountName:r.payee_bank_account_name,
+  payeeBankAccountNumber:r.payee_bank_account_number,payeeBankSwift:r.payee_bank_swift,
 });
 
 export const listBills = createServerFn({ method: "GET" })

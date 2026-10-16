@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  Shield, Gauge, KanbanSquare, Wallet, Users, Truck, Briefcase, HardHat, LayoutDashboard, Globe, LogOut, Menu, X, AlertTriangle,
+  Shield, Gauge, KanbanSquare, Wallet, Users, Truck, Briefcase, HardHat, LayoutDashboard, Globe, LogOut, Menu, X, AlertTriangle, BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-provider";
@@ -128,7 +128,8 @@ export function TenantShell({ profile, children }: { profile: Profile; children:
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const brand = useOrgBrand();
   const [open, setOpen] = useState(false);
-  const spaces = workspacesFor(profile).filter((workspace) => workspace.path !== "/hr");
+  const ehsDepartment = /\behs\b|health\s*,?\s*safety/i.test(profile.department ?? "");
+  const spaces = workspacesFor(profile).filter((workspace) => workspace.path !== "/hr" && !(ehsDepartment && workspace.path === "/projectmanager"));
   const roleLabel = ROLE_LABELS[profile.role as EhsRole] ?? profile.role;
 
   useEffect(() => setOpen(false), [pathname]);
@@ -147,7 +148,10 @@ export function TenantShell({ profile, children }: { profile: Profile; children:
     <div className="min-h-screen bg-bg text-fg lg:flex">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-6 overflow-y-auto border-r border-border bg-bg-elevated p-4 print:hidden lg:flex">
         <Link to="/" aria-label="Home"><Brand brand={brand} fallback={profile.organizationName ?? "Smart Hub"} /></Link>
-        <div className="flex-1"><NavList spaces={spaces} pathname={pathname} /></div>
+        <div className="flex-1">
+          <NavList spaces={spaces} pathname={pathname} />
+          {pathname === "/finance" && can(profile, "accounts.view") ? <div className="mt-5 border-t border-border pt-4"><p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Finance tools</p><a href="/finance?section=accounting" className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-bg-subtle hover:text-fg"><BookOpen className="size-[18px] shrink-0" /> Accounting</a></div> : null}
+        </div>
         {userCard}
       </aside>
 
@@ -159,7 +163,10 @@ export function TenantShell({ profile, children }: { profile: Profile; children:
               <Brand brand={brand} fallback={profile.organizationName ?? "Smart Hub"} />
               <button type="button" aria-label="Close menu" onClick={() => setOpen(false)} className="rounded-md p-1.5 text-fg-muted hover:bg-bg-subtle"><X className="size-5" /></button>
             </div>
-            <div className="flex-1"><NavList spaces={spaces} pathname={pathname} onNavigate={() => setOpen(false)} /></div>
+            <div className="flex-1">
+              <NavList spaces={spaces} pathname={pathname} onNavigate={() => setOpen(false)} />
+              {pathname === "/finance" && can(profile, "accounts.view") ? <div className="mt-5 border-t border-border pt-4"><p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">Finance tools</p><a href="/finance?section=accounting" onClick={() => setOpen(false)} className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-bg-subtle hover:text-fg"><BookOpen className="size-[18px] shrink-0" /> Accounting</a></div> : null}
+            </div>
             {userCard}
           </aside>
         </div>

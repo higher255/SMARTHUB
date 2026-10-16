@@ -16,7 +16,6 @@ import { createNcr, recordWorkHours, reportAnonymousHazard } from "@/lib/ehs/hse
 import { listAnnouncements, listHealth, listNotifications, reportIncident, submitHealth, type Announcement, type AppNotification, type HealthRow, type Profile } from "@/lib/ehs/server";
 import { formatDate, formatMoney, todayIso } from "@/lib/ui/format";
 import { errorMessage, useLive } from "@/lib/ui/use-live";
-import { emailDeliveryNote } from "@/lib/ui/email-status";
 import { SafetyHubWorkspace } from "@/components/hse/safetyhub-workspace";
 import { MoneyInput } from "@/components/finance/money-input";
 
@@ -227,7 +226,7 @@ function RequestDialog({ projects, currency, onClose, onDone }: { projects: Proj
           setBusy(true);
           try {
             const r = await createFinanceRequest({ data: { projectId: projectId === "" ? null : Number(projectId), title, category, amount: value, priority, description: description || undefined } });
-            onDone(`${r.requestNumber} sent directly to Finance` + emailDeliveryNote(r.emailStatus));
+            onDone(`${r.requestNumber} sent directly to Finance`);
           } catch (e2) { setErr(errorMessage(e2)); } finally { setBusy(false); }
         }}
       >

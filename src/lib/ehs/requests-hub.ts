@@ -291,6 +291,18 @@ export const listInbox = createServerFn({ method: "GET" })
     return [...journeyItems, ...inspectionItems].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });
 
+export const getJourneyOverview = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const profile = await requirePermission(context.userId, "ehs.view_org");
+    const sql = await getSql();
+    const rows = await sql<{ submitted: number | string; active: number | string }>`
+      select count(*)::int as submitted,
+        count(*) filter (where status = 'Started')::int as active
+      from trips where organization_id = ${profile.organizationId}`;
+    return { submitted: Number(rows[0]?.submitted ?? 0), active: Number(rows[0]?.active ?? 0) };
+  });
+
 export const listMyInspections = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
@@ -317,4 +329,3 @@ export const reviewInspection = createServerFn({ method: "POST" })
     await audit(sql, profile.organizationId, context.userId, "review", "vehicle_inspection", data.id, { note: data.note ?? null });
     return { success: true };
   });
-
